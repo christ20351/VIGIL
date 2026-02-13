@@ -1,0 +1,16 @@
+## 📄 Licence
+
+MIT License - Voir [LICENSE](LICENSE)
+
+## 👤 Auteur
+
+FAHA FOSSO CHRIST - (https://x.com/haurus)
+
+Project Link: [https://github.com/christ20351/monitoring-system](https://github.com/christ20351/monitoring-system)
+
+## 🙏 Remerciements
+
+- [psutil](https://github.com/giampaolo/psutil) - Métriques système
+- [Flask](https://flask.palletsprojects.com/) - Framework web
+- [Chart.js](https://www.chartjs.org/) - Graphiques
+- Communauté open source

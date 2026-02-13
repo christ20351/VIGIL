@@ -1,0 +1,6 @@
+.venv
+.server/config.py
+.agent/config.py
+uv.lock
+_pycache__/
+*.pyc

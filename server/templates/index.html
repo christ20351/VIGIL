@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitoring Central - Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <h1>🖥️ Tableau de Bord - Monitoring Centralisé</h1>
+            <p class="subtitle">Surveillance en temps réel de votre infrastructure</p>
+        </div>
+        <div class="header-stats">
+            <div class="stat-box">
+                <div class="stat-number" id="total-pcs">0</div>
+                <div class="stat-label">Ordinateurs</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number" style="color: #4CAF50;" id="online-pcs">0</div>
+                <div class="stat-label">En ligne</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number" style="color: #f44336;" id="offline-pcs">0</div>
+                <div class="stat-label">Hors ligne</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number" id="total-connections">0</div>
+                <div class="stat-label">Connexions</div>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <div id="computers-grid"></div>
+        <div id="no-computers" style="display: none; text-align: center; padding: 50px; color: white;">
+            <h2>😴 Aucun ordinateur connecté</h2>
+            <p>Les agents apparaîtront ici dès qu'ils commenceront à envoyer des données.</p>
+        </div>
+    </main>
+
+    <!-- Modal pour les détails -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title" id="modal-title">Détails</div>
+                <span class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <!-- Tabs -->
+                <div class="tabs">
+                    <button class="tab active" onclick="switchTab('overview')">📊 Vue d'ensemble</button>
+                    <button class="tab" onclick="switchTab('processes')">⚙️ Processus</button>
+                    <button class="tab" onclick="switchTab('network')">📡 Réseau</button>
+                    <button class="tab" onclick="switchTab('protocols')">🔌 Protocoles</button>
+                </div>
+
+                <!-- Tab Contents -->
+                <div id="tab-overview" class="tab-content active"></div>
+                <div id="tab-processes" class="tab-content"></div>
+                <div id="tab-network" class="tab-content"></div>
+                <div id="tab-protocols" class="tab-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
