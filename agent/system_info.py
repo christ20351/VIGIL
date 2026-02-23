@@ -2,15 +2,36 @@
 Collecteurs d'informations système pour l'agent de monitoring
 """
 
+import platform
+import socket
 import sys
 import time
 
 import psutil
 from collectors import get_network_interfaces, get_network_protocols, get_top_processes
 
+# importer la config pour les constantes de limites
+from collectors import PROCESS_LIMIT
+
 # Variables globales pour calculer le débit réseau
 last_net_io = None
 last_time = None
+
+
+def _get_local_ip():
+    """Détermine l'adresse IPv4 locale utilisable (similaire à agent.get_local_ip).
+
+    On ouvre un socket UDP vers Internet et récupère l'adresse
+    associée. En cas d'échec on retourne "127.0.0.1".
+    """
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
 
 
 def get_system_info():
@@ -68,16 +89,28 @@ def get_system_info():
     hostname = socket.gethostname()
     from datetime import datetime
 
+    # plusieurs façons de récupérer la version et l'architecture pour
+    # être robustes selon la version de psutil installée
+    if hasattr(psutil, "os_version"):
+        sys_ver = psutil.os_version()
+    else:
+        # fallback à platform si psutil ne dispose pas de cette fonction
+        sys_ver = platform.version() or platform.platform() or "N/A"
+
+    if hasattr(psutil, "architecture"):
+        arch = psutil.architecture()[0]
+    else:
+        arch = platform.machine() or platform.architecture()[0] or "N/A"
+
     return {
         "hostname": hostname,
         "timestamp": datetime.now().isoformat(),
         "system": sys.platform,
-        "system_version": (
-            psutil.os_version() if hasattr(psutil, "os_version") else "N/A"
-        ),
-        "architecture": (
-            psutil.architecture()[0] if hasattr(psutil, "architecture") else "N/A"
-        ),
+        "system_version": sys_ver,
+        "architecture": arch,
+        # exposer l'IP calculée directement côté agent pour simplifier le
+        # front-end (évite le N/A si aucune interface détectée)
+        "ip": _get_local_ip(),
         "cpu_percent": psutil.cpu_percent(interval=None),
         "cpu_count": psutil.cpu_count(),
         "memory": {
@@ -102,6 +135,7 @@ def get_system_info():
             "active_connections": active_connections,
         },
         "protocols": get_network_protocols(),
-        "processes": get_top_processes(limit=10),
+        # utiliser la limite configurée si elle change
+        "processes": get_top_processes(limit=PROCESS_LIMIT),
         "interfaces": get_network_interfaces(),
     }

@@ -20,7 +20,7 @@ AUTH_TOKEN = "votre-token-secret-ici"
 
 # === MONITORING ===
 TIMEOUT = 10  # Secondes avant de considerer un PC deconnecte
-PROCESS_LIMIT = 100  # Nombre de processus a monitorer
+  # Nombre de processus a monitorer
 NETWORK_CONN_LIMIT = 100  # Nombre de connexions reseau a envoyer
 
 

@@ -37,6 +37,11 @@ let computersData = {};
 let currentHostname = null;
 let ws = null;
 let liveChart = null;
+
+// filtres appliqués à la liste des processus (pourcentage)
+let cpuFilter = 0;
+let ramFilter = 0;
+
 const MAX_POINTS = 40;
 const chartHistory = {}; // { hostname: { cpu[], ram[], disk[], labels[] } }
 
@@ -284,16 +289,17 @@ function buildCardHTML(hostname, data) {
   const ram = (data.memory?.percent || 0).toFixed(1);
   const disk = (data.disk?.percent || 0).toFixed(1);
 
-  let ip = "N/A";
+  // préférer l'adresse remontée par la configuration du serveur (agent_ip)
+  let ip = data.agent_ip || "N/A";
   if (data.interfaces) {
     for (const iface of Object.values(data.interfaces)) {
       for (const addr of iface.addresses || []) {
         if (addr.type === "IPv4" && addr.address !== "127.0.0.1") {
-          ip = addr.address;
+          ip = ip === "N/A" ? addr.address : ip; // ne remplacer que si on n'a pas déjà d'IP
           break;
         }
       }
-      if (ip !== "N/A") break;
+      if (ip !== "N/A" && ip !== data.agent_ip) break;
     }
   }
 
@@ -442,7 +448,7 @@ function renderOverview(hostname) {
         <div class="sysinfo-row"><span class="sysinfo-key">OS</span><span class="sysinfo-val">${data.system || "N/A"}</span></div>
         <div class="sysinfo-row"><span class="sysinfo-key">VERSION</span><span class="sysinfo-val">${data.system_version || "N/A"}</span></div>
         <div class="sysinfo-row"><span class="sysinfo-key">ARCH</span><span class="sysinfo-val">${data.architecture || "N/A"}</span></div>
-        <div class="sysinfo-row"><span class="sysinfo-key">IP</span><span class="sysinfo-val">${data.ip || "N/A"}</span></div>
+        <div class="sysinfo-row"><span class="sysinfo-key">IP</span><span class="sysinfo-val">${data.ip || data.agent_ip || "N/A"}</span></div>
         <div class="sysinfo-row"><span class="sysinfo-key">MAJ</span><span class="sysinfo-val">${data.timestamp || "N/A"}</span></div>
       </div>
     </div>
@@ -562,10 +568,20 @@ function updateLiveChart(hostname) {
 // ─── PROCESSUS ────────────────────────────────────────────────────
 function renderProcesses(data) {
   const procs = data.processes || [];
+  // appliquer les filtres
+  const filtered = procs.filter(
+    (p) =>
+      (p.cpu_percent || 0) >= cpuFilter && (p.memory_percent || 0) >= ramFilter,
+  );
+
   document.getElementById("tab-processes").innerHTML = `
     <div class="proc-header">
       <span class="section-label">Processus actifs</span>
-      <span class="proc-count">${procs.length} processus</span>
+      <div class="proc-filters">
+        <label>CPU ≥ <input type="number" id="filter-cpu" min="0" max="100" value="${cpuFilter}" style="width:50px"></label>
+        <label>RAM ≥ <input type="number" id="filter-ram" min="0" max="100" value="${ramFilter}" style="width:50px"></label>
+      </div>
+      <span class="proc-count">${filtered.length} processus</span>
     </div>
     <table>
       <thead>
@@ -574,8 +590,7 @@ function renderProcesses(data) {
         </tr>
       </thead>
       <tbody>
-        ${procs
-          .slice(0, 30)
+        ${filtered
           .map(
             (p) => `
           <tr>
@@ -591,6 +606,24 @@ function renderProcesses(data) {
       </tbody>
     </table>
   `;
+
+  // lier les contrôles des seuils aux variables et rafraîchir au changement
+  const cpuInput = document.getElementById("filter-cpu");
+  const ramInput = document.getElementById("filter-ram");
+  if (cpuInput) {
+    cpuInput.oninput = () => {
+      cpuFilter = Number(cpuInput.value) || 0;
+      renderProcesses(data);
+    };
+  }
+  if (ramInput) {
+    ramInput.oninput = () => {
+      ramFilter = Number(ramInput.value) || 0;
+      renderProcesses(data);
+    };
+  }
+
+  refreshIcons();
 }
 
 // ─── RÉSEAU ───────────────────────────────────────────────────────
@@ -615,6 +648,22 @@ function renderNetwork(data) {
       </div>
     </div>
   `;
+  // lier les contrôles de filtre pour rafraîchir la vue quand ils changent
+  const cpuInput = document.getElementById("filter-cpu");
+  const ramInput = document.getElementById("filter-ram");
+  if (cpuInput) {
+    cpuInput.oninput = () => {
+      cpuFilter = Number(cpuInput.value) || 0;
+      renderProcesses(data);
+    };
+  }
+  if (ramInput) {
+    ramInput.oninput = () => {
+      ramFilter = Number(ramInput.value) || 0;
+      renderProcesses(data);
+    };
+  }
+
   refreshIcons();
 }
 

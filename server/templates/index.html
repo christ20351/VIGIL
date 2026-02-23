@@ -12,7 +12,7 @@
       rel="stylesheet"
     />
 
-    {% comment %} <script
+    <script
       src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
       onerror="window.CHARTJS_UNAVAILABLE = true"
     ></script>
@@ -20,7 +20,7 @@
     <script
       src="https://unpkg.com/lucide@0.344.0/dist/umd/lucide.js"
       onerror="window.LUCIDE_UNAVAILABLE = true"
-    ></script> {% endcomment %}
+    ></script>
 
     <!-- APRÈS (local, fonctionne sans internet) -->
     <script src="/static/vendor/chart.umd.min.js"></script>
@@ -40,10 +40,10 @@
           <div class="nav-item active">
             <i data-lucide="layout-dashboard"></i> Dashboard
           </div>
-          {% comment %} <div class="nav-item"><i data-lucide="server"></i> Agents</div>
+        <div class="nav-item"><i data-lucide="server"></i> Agents</div>
           <div class="nav-item"><i data-lucide="activity"></i> Activité</div>
           <div class="nav-item"><i data-lucide="shield"></i> Sécurité</div>
-          <div class="nav-item"><i data-lucide="settings"></i> Paramètres</div> {% endcomment %}
+          <div class="nav-item"><i data-lucide="settings"></i> Paramètres</div> 
         </nav>
         <div class="sidebar-footer">
           <div class="ws-status">

@@ -9,7 +9,9 @@ from collections import defaultdict
 
 import psutil
 
+# importer les constantes de config pour les limites
 
+PROCESS_LIMIT = 30
 def get_network_protocols():
     """Récupère les connexions réseau par protocole"""
     protocols = {
@@ -112,9 +114,17 @@ def get_network_interfaces():
     return interfaces
 
 
-def get_top_processes(limit=10):
-    """Récupère les processus les plus gourmands en CPU avec détails"""
+def get_top_processes(limit=None):
+    """Récupère les processus les plus gourmands en CPU avec détails.
+
+    Si `limit` n'est pas précisé, la valeur par défaut est lue depuis la
+    configuration de l'agent (`PROCESS_LIMIT`).
+    """
     processes = []
+
+    # déterminer la limite effective
+    if limit is None:
+        limit = PROCESS_LIMIT
 
     try:
         for proc in psutil.process_iter(
@@ -122,6 +132,15 @@ def get_top_processes(limit=10):
         ):
             try:
                 pinfo = proc.info
+
+                # parfois psutil renvoie un name None, tenter de le récupérer à la
+                # volée pour éviter l'affichage «N/A» en cas de permission
+                if not pinfo.get("name"):
+                    try:
+                        pinfo["name"] = proc.name()
+                    except Exception:
+                        pinfo["name"] = "N/A"
+
                 pinfo["cpu_percent"] = proc.cpu_percent(interval=None)
                 pinfo["memory_percent"] = proc.memory_percent()
 

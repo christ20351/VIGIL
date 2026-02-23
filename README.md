@@ -23,7 +23,7 @@ Un système de monitoring puissant et simple pour surveiller plusieurs ordinateu
 - 🌐 **Interfaces réseau** : IPv4, IPv6, vitesse, état actif/inactif
 
 ### Processus
-- ⚙️ **Top 10 processus** par utilisation CPU
+- ⚙️ **Top 30 processus** par utilisation CPU
 - 📈 **Détails complets** : PID, nom, CPU%, RAM%, état, utilisateur
 - 🎯 **Visualisation** avec barres de progression
 
@@ -53,7 +53,7 @@ Un système de monitoring puissant et simple pour surveiller plusieurs ordinateu
 
 ## 📋 Prérequis
 
-- Python 3.7 ou supérieur
+- Python 3.13.12 ou supérieur
 - Connexion réseau entre les machines
 - Ports : 5000 (serveur)
 
