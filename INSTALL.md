@@ -2,8 +2,8 @@
 
 ## Prérequis
 
-- Python 3.8+
-- pip
+- Python 3.13.12+
+- pip ou uv
 
 ## Installation
 
@@ -12,6 +12,8 @@
 ```bash
 cd server
 pip install -r requirements.txt
+            ou
+uv pip install requirements.txt
 ```
 
 ### 2. Agent
@@ -19,6 +21,8 @@ pip install -r requirements.txt
 ```bash
 cd agent
 pip install -r requirements.txt
+            ou
+uv pip install requirements.txt
 ```
 
 ## Configuration

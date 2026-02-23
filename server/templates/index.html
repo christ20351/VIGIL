@@ -1,71 +1,133 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Monitoring Central - Dashboard</title>
-    <link rel="stylesheet" href="/static/style.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-</head>
-<body>
-    <header>
-        <div class="header-left">
-            <h1>🖥️ Tableau de Bord - Monitoring Centralisé</h1>
-            <p class="subtitle">Surveillance en temps réel de votre infrastructure</p>
-        </div>
-        <div class="header-stats">
-            <div class="stat-box">
-                <div class="stat-number" id="total-pcs">0</div>
-                <div class="stat-label">Ordinateurs</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-number" style="color: #4CAF50;" id="online-pcs">0</div>
-                <div class="stat-label">En ligne</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-number" style="color: #f44336;" id="offline-pcs">0</div>
-                <div class="stat-label">Hors ligne</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-number" id="total-connections">0</div>
-                <div class="stat-label">Connexions</div>
-            </div>
-        </div>
-    </header>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VIGIL — Monitoring Dashboard</title>
 
-    <main>
-        <div id="computers-grid"></div>
-        <div id="no-computers" style="display: none; text-align: center; padding: 50px; color: white;">
-            <h2>😴 Aucun ordinateur connecté</h2>
-            <p>Les agents apparaîtront ici dès qu'ils commenceront à envoyer des données.</p>
-        </div>
-    </main>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;600;700;800&display=swap"
+      rel="stylesheet"
+    />
 
-    <!-- Modal pour les détails -->
-    <div id="modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <div class="modal-title" id="modal-title">Détails</div>
-                <span class="close">&times;</span>
-            </div>
-            <div class="modal-body">
-                <!-- Tabs -->
-                <div class="tabs">
-                    <button class="tab active" onclick="switchTab('overview')">📊 Vue d'ensemble</button>
-                    <button class="tab" onclick="switchTab('processes')">⚙️ Processus</button>
-                    <button class="tab" onclick="switchTab('network')">📡 Réseau</button>
-                    <button class="tab" onclick="switchTab('protocols')">🔌 Protocoles</button>
-                </div>
+    {% comment %} <script
+      src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
+      onerror="window.CHARTJS_UNAVAILABLE = true"
+    ></script>
 
-                <!-- Tab Contents -->
-                <div id="tab-overview" class="tab-content active"></div>
-                <div id="tab-processes" class="tab-content"></div>
-                <div id="tab-network" class="tab-content"></div>
-                <div id="tab-protocols" class="tab-content"></div>
-            </div>
+    <script
+      src="https://unpkg.com/lucide@0.344.0/dist/umd/lucide.js"
+      onerror="window.LUCIDE_UNAVAILABLE = true"
+    ></script> {% endcomment %}
+
+    <!-- APRÈS (local, fonctionne sans internet) -->
+    <script src="/static/vendor/chart.umd.min.js"></script>
+    <script src="/static/vendor/lucide.js"></script>
+    <script src="../static/script.js"></script>
+    <link rel="stylesheet" href="../static/style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <!-- ── SIDEBAR ── -->
+      <aside class="sidebar">
+        <div class="logo">
+          <div class="logo-text">VIGIL</div>
+          <div class="logo-sub">MONITORING SYSTEM v2.0</div>
         </div>
+        <nav class="nav">
+          <div class="nav-item active">
+            <i data-lucide="layout-dashboard"></i> Dashboard
+          </div>
+          {% comment %} <div class="nav-item"><i data-lucide="server"></i> Agents</div>
+          <div class="nav-item"><i data-lucide="activity"></i> Activité</div>
+          <div class="nav-item"><i data-lucide="shield"></i> Sécurité</div>
+          <div class="nav-item"><i data-lucide="settings"></i> Paramètres</div> {% endcomment %}
+        </nav>
+        <div class="sidebar-footer">
+          <div class="ws-status">
+            <div class="ws-dot" id="ws-dot"></div>
+            <span id="ws-label">Connexion...</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ── MAIN ── -->
+      <div class="main">
+        <!-- TOPBAR -->
+        <div class="topbar">
+          <div class="topbar-title">INFRASTRUCTURE / AGENTS EN DIRECT</div>
+          <div class="topbar-stats">
+            <div class="kpi">
+              <div class="kpi-val blue" id="total-pcs">0</div>
+              <div class="kpi-label">Total</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-val green" id="online-pcs">0</div>
+              <div class="kpi-label">En ligne</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-val red" id="offline-pcs">0</div>
+              <div class="kpi-label">Hors ligne</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-val" id="total-connections">0</div>
+              <div class="kpi-label">Connexions</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CONTENT -->
+        <div class="content">
+          <div id="computers-grid"></div>
+          <div id="no-computers">
+            <i data-lucide="server-off"></i>
+            <h2>Aucun agent connecté</h2>
+            <p>Les agents apparaîtront ici dès qu'ils enverront des données.</p>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <script src="/static/script.js"></script>
-</body>
+    <!-- ── MODAL ── -->
+    <div id="modal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div class="modal-title-wrap">
+            <i data-lucide="monitor"></i>
+            <span class="modal-title" id="modal-title">Agent</span>
+            <span class="modal-badge" id="modal-ip">—</span>
+          </div>
+          <button class="btn-close" id="btn-close">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+
+        <div class="tabs">
+          <button class="tab active" onclick="switchTab('overview')">
+            <i data-lucide="layout-dashboard"></i> Vue d'ensemble
+          </button>
+          <button class="tab" onclick="switchTab('processes')">
+            <i data-lucide="cpu"></i> Processus
+          </button>
+          <button class="tab" onclick="switchTab('network')">
+            <i data-lucide="network"></i> Réseau
+          </button>
+          <button class="tab" onclick="switchTab('protocols')">
+            <i data-lucide="plug"></i> Protocoles
+          </button>
+        </div>
+
+        <div class="modal-body">
+          <div id="tab-overview" class="tab-content active"></div>
+          <div id="tab-processes" class="tab-content"></div>
+          <div id="tab-network" class="tab-content"></div>
+          <div id="tab-protocols" class="tab-content"></div>
+        </div>
+      </div>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
 </html>

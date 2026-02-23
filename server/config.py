@@ -6,7 +6,7 @@
 # Interface d'ecoute (0.0.0.0 pour toutes les interfaces)
 SERVER_HOST = "localhost"
 # Port du serveur web
-SERVER_PORT = 8900
+SERVER_PORT = 8000
 
 # === SECURITE ===
 # IPs autorisees pour les agents (laissent vide pour accepter toutes)

@@ -5,17 +5,22 @@ echo "  Monitoring System v2.0 - Installation"
 echo "=========================================="
 echo ""
 
-# Simple install script that installs dependencies per component
-set -e
-
 # Couleurs pour affichage
 COLOR_GREEN='\033[0;32m'
 COLOR_RED='\033[0;31m'
 COLOR_YELLOW='\033[1;33m'
 NC='\033[0m'
 
-# Afficher la bannière MOTOR en vert
-echo -e "${COLOR_GREEN}+-----------+\n|  V I G I L  |\n+-----------+\n\n       VIGIL — Monitoring lightweight${NC}"
+# Banniere VIGIL
+echo -e "${COLOR_YELLOW}"
+echo '#    #   ###    ###    ###    #    #'
+echo '#    #    #    #       #     #    #'
+echo '#    #    #    # ###   #     #    #'
+echo ' #  #     #    #   #   #     #    #'
+echo '  ##     ###    ###   ###   #####'
+echo -e "${COLOR_GREEN}"
+echo '       VIGIL - Monitoring System'
+echo -e "${NC}"
 
 echo "Que voulez-vous installer ?"
 echo "1) Serveur Central"
@@ -23,15 +28,70 @@ echo "2) Agent de Monitoring"
 read -p "Votre choix (1 ou 2) : " choice
 
 if ! command -v python3 >/dev/null 2>&1; then
-    echo -e "${COLOR_RED}Python3 n'est pas installé. Installez Python3 puis relancez ce script.${NC}"
+    echo -e "${COLOR_RED}[ERREUR] Python3 n'est pas installe. Installez Python3 puis relancez ce script.${NC}"
     exit 1
 fi
+echo -e "${COLOR_GREEN}[OK] Python3 est installe.${NC}"
 
+# ==========================================
+# Fonctions utilitaires
+# ==========================================
+
+update_string_value() {
+    local file="$1"
+    local key="$2"
+    local value="$3"
+    sed -i "s/${key} = \"[^\"]*\"/${key} = \"${value}\"/" "$file"
+}
+
+update_int_value() {
+    local file="$1"
+    local key="$2"
+    local value="$3"
+    sed -i "s/^${key} = [0-9]*/${key} = ${value}/" "$file"
+}
+
+ask_string() {
+    local prompt="$1"
+    local file="$2"
+    local key="$3"
+    read -p "$prompt" value
+    if [ -n "$value" ]; then
+        update_string_value "$file" "$key" "$value"
+        echo -e "${COLOR_GREEN}[OK] $key mis a jour.${NC}"
+    fi
+}
+
+ask_int() {
+    local prompt="$1"
+    local file="$2"
+    local key="$3"
+    read -p "$prompt" value
+    if [ -n "$value" ]; then
+        if [[ "$value" =~ ^[0-9]+$ ]]; then
+            update_int_value "$file" "$key" "$value"
+            echo -e "${COLOR_GREEN}[OK] $key mis a jour.${NC}"
+        else
+            echo -e "${COLOR_RED}[ERREUR] La valeur doit etre un nombre entier positif.${NC}"
+        fi
+    fi
+}
+
+# ==========================================
 if [ "$choice" == "1" ]; then
-    echo -e "${COLOR_YELLOW}Installation des dépendances du serveur...${NC}"
-    pip3 install -r server/requirements.txt --quiet > /dev/null 2>&1 || { echo -e "${COLOR_RED}Erreur lors de l'installation des dépendances serveur${NC}"; exit 1; }
+    echo ""
+    echo "=========================================="
+    echo "  Configuration du SERVEUR CENTRAL"
+    echo "=========================================="
 
-    # Create default server config if missing, or update existing
+    echo -e "${COLOR_YELLOW}[INFO] Installation des dependances serveur...${NC}"
+    pip3 install -r server/requirements.txt --quiet >/dev/null 2>&1
+    if [ $? -ne 0 ]; then
+        echo -e "${COLOR_RED}[ERREUR] Impossible d'installer les dependances serveur.${NC}"
+        exit 1
+    fi
+    echo -e "${COLOR_GREEN}[OK] Dependances installees.${NC}"
+
     if [ ! -f server/config.py ]; then
         cat > server/config.py << 'PYCONF'
 # ====================================
@@ -45,12 +105,12 @@ SERVER_HOST = "0.0.0.0"
 SERVER_PORT = 5000
 
 # === SECURITE ===
-# IPs autorisees pour les agents (laissent vide pour accepter toutes)
+# IPs autorisees pour les agents (laissez vide pour accepter toutes)
 ALLOWED_AGENT_IPS = [
     # "192.168.1.10",
     # "192.168.1.20",
 ]
-# IPs autorisees pour les clients web (laissent vide pour accepter toutes)
+# IPs autorisees pour les clients web (laissez vide pour accepter toutes)
 ALLOWED_CLIENT_IPS = [
     # "192.168.1.100",
     # "192.168.1.101",
@@ -66,34 +126,41 @@ TIMEOUT = 60  # Secondes avant de considerer un PC deconnecte
 PROCESS_LIMIT = 100  # Nombre de processus a monitorer
 NETWORK_CONN_LIMIT = 100  # Nombre de connexions reseau a envoyer
 PYCONF
-        echo -e "${COLOR_GREEN}[OK] Fichier server/config.py cree avec les parametres par defaut.${NC}"
+        echo -e "${COLOR_GREEN}[OK] server/config.py cree avec les parametres par defaut.${NC}"
     else
-        echo -e "${COLOR_YELLOW}Configuration serveur existante trouvée.${NC}"
-        read -p "Voulez-vous modifier l'host du serveur ? (actuellement $(grep 'SERVER_HOST' server/config.py | cut -d'"' -f2), laissez vide pour garder) : " new_host
-        if [ -n "$new_host" ]; then
-            sed -i "s/SERVER_HOST = \".*\"/SERVER_HOST = \"$new_host\"/" server/config.py
-            echo -e "${COLOR_GREEN}Host mis à jour.${NC}"
-        fi
-        read -p "Voulez-vous modifier le port du serveur ? (actuellement $(grep 'SERVER_PORT' server/config.py | grep -o '[0-9]\+'), laissez vide pour garder) : " new_port
-        if [ -n "$new_port" ] && [[ "$new_port" =~ ^[0-9]+$ ]]; then
-            sed -i "s/SERVER_PORT = [0-9]\+/SERVER_PORT = $new_port/" server/config.py
-            echo -e "${COLOR_GREEN}Port mis à jour.${NC}"
-        fi
+        echo -e "${COLOR_YELLOW}[INFO] Configuration serveur existante trouvee.${NC}"
     fi
+
+    ask_string "Modifier l'host du serveur ? (vide pour garder l'actuel) : " "server/config.py" "SERVER_HOST"
+    ask_int    "Modifier le port du serveur ? (vide pour garder l'actuel) : " "server/config.py" "SERVER_PORT"
 
     echo ""
-    read -p "Démarrer le serveur maintenant ? (o/n) : " start_now
+    read -p "Demarrer le serveur maintenant ? (o/n) : " start_now
     if [[ "$start_now" =~ ^[oO]$ ]]; then
+        echo -e "${COLOR_GREEN}[INFO] Demarrage du serveur...${NC}"
         python3 server/server.py --mode web
     else
-        echo "Pour démarrer le serveur : cd server && python3 server.py --mode web"
+        echo ""
+        echo -e "${COLOR_GREEN}[OK] Installation terminee !${NC}"
+        echo "Pour demarrer le serveur :"
+        echo "  cd server && python3 server.py --mode web"
     fi
 
+# ==========================================
 elif [ "$choice" == "2" ]; then
-    echo -e "${COLOR_YELLOW}Installation des dépendances de l'agent...${NC}"
-    pip3 install -r agent/requirements.txt --quiet > /dev/null 2>&1 || { echo -e "${COLOR_RED}Erreur lors de l'installation des dépendances agent${NC}"; exit 1; }
+    echo ""
+    echo "=========================================="
+    echo "  Configuration de l'AGENT"
+    echo "=========================================="
 
-    # Create default agent config if missing, or update existing
+    echo -e "${COLOR_YELLOW}[INFO] Installation des dependances agent...${NC}"
+    pip3 install -r agent/requirements.txt --quiet >/dev/null 2>&1
+    if [ $? -ne 0 ]; then
+        echo -e "${COLOR_RED}[ERREUR] Impossible d'installer les dependances agent.${NC}"
+        exit 1
+    fi
+    echo -e "${COLOR_GREEN}[OK] Dependances installees.${NC}"
+
     if [ ! -f agent/config.py ]; then
         cat > agent/config.py << 'PYCONF'
 # ====================================
@@ -121,40 +188,36 @@ TIMEOUT = 10  # Secondes avant de considerer un PC deconnecte
 PROCESS_LIMIT = 100  # Nombre de processus a monitorer
 NETWORK_CONN_LIMIT = 100  # Nombre de connexions reseau a envoyer
 PYCONF
-        echo -e "${COLOR_GREEN}[OK] Fichier agent/config.py cree avec les parametres par defaut.${NC}"
-        read -p "Entrez l'IP/hostname du serveur central (défaut: 192.168.188.120) : " server_ip
-        server_ip=${server_ip:-192.168.188.120}
-        read -p "Intervalle d'envoi en secondes (défaut 1) : " interval
-        interval=${interval:-1}
-        sed -i "s/SERVER_IP = \".*\"/SERVER_IP = \"$server_ip\"/" agent/config.py
-        sed -i "s/UPDATE_INTERVAL = [0-9]\+/UPDATE_INTERVAL = $interval/" agent/config.py
+        echo -e "${COLOR_GREEN}[OK] agent/config.py cree avec les parametres par defaut.${NC}"
     else
-        echo -e "${COLOR_YELLOW}Configuration agent existante trouvée.${NC}"
-        read -p "Entrez l'IP/hostname du serveur central (actuellement $(grep 'SERVER_IP' agent/config.py | cut -d'"' -f2), laissez vide pour garder) : " server_ip
-        if [ -n "$server_ip" ]; then
-            sed -i "s/SERVER_IP = \".*\"/SERVER_IP = \"$server_ip\"/" agent/config.py
-            echo -e "${COLOR_GREEN}IP du serveur mise à jour.${NC}"
-        fi
-        read -p "Intervalle d'envoi en secondes (actuellement $(grep 'UPDATE_INTERVAL' agent/config.py | grep -o '[0-9]\+'), laissez vide pour garder) : " interval
-        if [ -n "$interval" ] && [[ "$interval" =~ ^[0-9]+$ ]]; then
-            sed -i "s/UPDATE_INTERVAL = [0-9]\+/UPDATE_INTERVAL = $interval/" agent/config.py
-            echo -e "${COLOR_GREEN}Intervalle mis à jour.${NC}"
-        fi
+        echo -e "${COLOR_YELLOW}[INFO] Configuration agent existante trouvee.${NC}"
     fi
 
-    read -p "Démarrer l'agent maintenant ? (o/n) : " start_now
+    ask_string "Entrez l'IP/hostname du serveur central (vide pour garder l'actuel) : " "agent/config.py" "SERVER_IP"
+    ask_int    "Entrez le port du serveur central (vide pour garder l'actuel) : "         "agent/config.py" "SERVER_PORT"
+    ask_int    "Intervalle d'envoi en secondes (vide pour garder l'actuel) : "            "agent/config.py" "UPDATE_INTERVAL"
+
+    echo ""
+    read -p "Demarrer l'agent maintenant ? (o/n) : " start_now
     if [[ "$start_now" =~ ^[oO]$ ]]; then
+        echo -e "${COLOR_GREEN}[INFO] Demarrage de l'agent...${NC}"
         sudo python3 agent/agent.py
     else
-        echo "Pour démarrer l'agent : cd agent && sudo python3 agent.py"
+        echo ""
+        echo -e "${COLOR_GREEN}[OK] Installation terminee !${NC}"
+        echo "Pour demarrer l'agent :"
+        echo "  cd agent && sudo python3 agent.py"
     fi
 
 else
-    echo -e "${COLOR_RED}Choix invalide.${NC}"
+    echo -e "${COLOR_RED}[ERREUR] Choix invalide.${NC}"
     exit 1
 fi
 
-echo -e "${COLOR_GREEN}Installation terminée.${NC}"
+echo ""
+echo "=========================================="
+echo -e "${COLOR_GREEN}  Installation terminee avec succes !${NC}"
+echo "=========================================="
 
-# Nettoyage silencieux : supprimer les dossiers __pycache__
+# Nettoyage : supprimer les dossiers __pycache__
 find . -type d -name "__pycache__" -exec rm -rf {} + >/dev/null 2>&1 || true

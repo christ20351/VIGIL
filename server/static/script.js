@@ -1,473 +1,654 @@
-// script.js for Monitoring Dashboard
+/* ─────────────────────────────────────────────────────────────
+   VIGIL — script.js
+   ───────────────────────────────────────────────────────────── */
 
+// ─── DÉTECTION HORS-LIGNE ──────────────────────────────────────────
+//
+// window.CHARTJS_UNAVAILABLE  → mis à true par l'attribut onerror
+//                               du <script> dans le HTML si le CDN
+//                               Chart.js est inaccessible.
+//
+// window.LUCIDE_UNAVAILABLE   → mis à true si le CDN Lucide échoue.
+//
+// Ces deux flags sont définis dans le HTML AVANT ce script,
+// donc on peut les lire ici dès le chargement.
 
+const CHARTJS_OK = !window.CHARTJS_UNAVAILABLE && typeof Chart !== "undefined";
+const LUCIDE_OK = !window.LUCIDE_UNAVAILABLE && typeof lucide !== "undefined";
 
+// Wrapper Lucide : appelle createIcons() seulement si disponible,
+// sinon remplace les <i data-lucide> par un carré neutre (CSS .icon-fallback)
+function refreshIcons() {
+  if (LUCIDE_OK) {
+    lucide.createIcons();
+  } else {
+    document.querySelectorAll("i[data-lucide]").forEach((el) => {
+      if (!el.dataset.replaced) {
+        const span = document.createElement("span");
+        span.className = "icon-fallback";
+        el.replaceWith(span);
+      }
+    });
+  }
+}
+
+// ─── STATE ────────────────────────────────────────────────────────
 let computersData = {};
-let modal = document.getElementById("modal");
 let currentHostname = null;
 let ws = null;
-let reconnectInterval = null;
+let liveChart = null;
+const MAX_POINTS = 40;
+const chartHistory = {}; // { hostname: { cpu[], ram[], disk[], labels[] } }
 
-// Initialize
-document.addEventListener("DOMContentLoaded", function () {
-  // Connexion WebSocket uniquement
-  initializeWebSocket();
+// ─── INIT ─────────────────────────────────────────────────────────
+document.addEventListener("DOMContentLoaded", () => {
+  refreshIcons();
+  initWebSocket();
 
-  // Modal close
-  document.querySelector(".close").onclick = function () {
-    modal.style.display = "none";
-  };
+  document.getElementById("btn-close").onclick = closeModal;
+  document.getElementById("modal").addEventListener("click", (e) => {
+    if (e.target === document.getElementById("modal")) closeModal();
+  });
 
-  window.onclick = function (event) {
-    if (event.target == modal) {
-      modal.style.display = "none";
-    }
-  };
+  // Données de démo : retire ce bloc quand les vrais agents sont connectés
+  injectDemoData();
 });
 
-function initializeWebSocket() {
+// ─── DÉMO ─────────────────────────────────────────────────────────
+function injectDemoData() {
+  const hosts = ["WORKSTATION-01", "SERVER-PROD", "DEV-MACHINE", "LAPTOP-RH"];
+  const oses = [
+    "Windows 11 Pro",
+    "Ubuntu 22.04 LTS",
+    "Windows 10",
+    "macOS Ventura",
+  ];
+
+  hosts.forEach((h, i) => {
+    computersData[h] = makeFakeAgent(h, oses[i]);
+    chartHistory[h] = { cpu: [], ram: [], disk: [], labels: [] };
+  });
+
+  updateStats();
+  renderComputers();
+
+  setInterval(() => {
+    hosts.forEach((h) => {
+      const d = computersData[h];
+      d.cpu_percent = clamp(d.cpu_percent + rand(-8, 8), 2, 98);
+      d.memory.percent = clamp(d.memory.percent + rand(-4, 4), 10, 95);
+      d.disk.percent = clamp(d.disk.percent + rand(-1, 1), 10, 98);
+      pushHistory(h, d);
+    });
+    renderComputers();
+
+    if (
+      currentHostname &&
+      document.getElementById("modal").classList.contains("open")
+    ) {
+      const activeTab = document.querySelector(".tab-content.active");
+      if (activeTab?.id === "tab-overview") renderOverview(currentHostname);
+      updateLiveChart(currentHostname);
+    }
+  }, 1500);
+}
+
+function makeFakeAgent(hostname, os) {
+  return {
+    hostname,
+    system: os,
+    system_version: "22H2",
+    architecture: "x86_64",
+    cpu_percent: rand(10, 60),
+    memory: { percent: rand(30, 80), used: 6.2e9, total: 16e9 },
+    disk: { percent: rand(30, 75), used: 200e9, total: 512e9 },
+    ip: `192.168.1.${rand(10, 200)}`,
+    timestamp: new Date().toLocaleTimeString(),
+    processes: Array.from({ length: 20 }, (_, i) => ({
+      name: [
+        "chrome.exe",
+        "svchost.exe",
+        "python.exe",
+        "node.exe",
+        "code.exe",
+        "explorer.exe",
+      ][i % 6],
+      cpu_percent: rand(0, 20),
+      memory_percent: rand(0, 10),
+      memory_rss: rand(50, 800) * 1e6,
+      io_read_bytes: rand(0, 500) * 1e6,
+      io_write_bytes: rand(0, 200) * 1e6,
+    })),
+    network: {
+      bytes_recv_per_sec: rand(100, 5000) * 1024,
+      bytes_sent_per_sec: rand(50, 2000) * 1024,
+      bytes_recv: rand(1, 50) * 1e9,
+      bytes_sent: rand(1, 20) * 1e9,
+      active_connections: rand(20, 120),
+    },
+    protocols: {
+      tcp: {
+        established: rand(10, 60),
+        listen: rand(5, 20),
+        time_wait: rand(0, 10),
+        close_wait: rand(0, 5),
+        connections: [],
+      },
+      udp: { total: rand(5, 30), connections: [] },
+      total: rand(30, 100),
+    },
+    interfaces: {
+      Ethernet: {
+        addresses: [{ type: "IPv4", address: `192.168.1.${rand(10, 200)}` }],
+      },
+    },
+  };
+}
+
+function rand(a, b) {
+  return Math.floor(Math.random() * (b - a + 1)) + a;
+}
+function clamp(v, mn, mx) {
+  return Math.min(Math.max(v, mn), mx);
+}
+
+// ─── WEBSOCKET ────────────────────────────────────────────────────
+function initWebSocket() {
   try {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    ws = new WebSocket(`${proto}//${location.host}/ws`);
 
-    ws = new WebSocket(wsUrl);
+    ws.onopen = () => setWsStatus(true);
+    ws.onclose = () => setWsStatus(false);
+    ws.onerror = () => setWsStatus(false);
 
-    ws.onopen = function () {
-      console.log("✅ WebSocket connecté");
-      // Les données initiales seront envoyées par le serveur via WebSocket
-    };
-
-    ws.onmessage = function (event) {
+    ws.onmessage = (e) => {
       try {
-        const msg = JSON.parse(event.data);
+        const msg = JSON.parse(e.data);
 
-        // Ancien format: broadcast en bloc
         if (msg.type === "update" && msg.data) {
           computersData = msg.data;
+          Object.keys(computersData).forEach((h) => {
+            if (!chartHistory[h])
+              chartHistory[h] = { cpu: [], ram: [], disk: [], labels: [] };
+            pushHistory(h, computersData[h]);
+          });
           updateStats();
           renderComputers();
         }
 
-        // Nouveau format: mise à jour par agent WebSocket
         if (msg.type === "agent_update" && msg.hostname && msg.data) {
           computersData[msg.hostname] = msg.data;
+          if (!chartHistory[msg.hostname])
+            chartHistory[msg.hostname] = {
+              cpu: [],
+              ram: [],
+              disk: [],
+              labels: [],
+            };
+          pushHistory(msg.hostname, msg.data);
           updateStats();
           renderComputers();
 
-          // Si une modal est ouverte et c'est le même agent, mettre à jour
-          // On restaure l'ancien comportement en appelant openModal(),
-          // mais `openModal` respecte maintenant l'onglet actif.
           if (
             currentHostname === msg.hostname &&
-            modal.style.display === "block"
+            document.getElementById("modal").classList.contains("open")
           ) {
-            openModal(msg.hostname);
+            const active = document.querySelector(".tab-content.active");
+            if (active?.id === "tab-overview") renderOverview(msg.hostname);
+            updateLiveChart(msg.hostname);
           }
         }
-      } catch (e) {
-        console.error("WebSocket message parse error:", e);
+      } catch {
+        /* message malformé, on ignore */
       }
     };
-
-    ws.onerror = function (error) {
-      console.error("❌ WebSocket erreur:", error);
-    };
-
-    ws.onclose = function () {
-      console.log("⚠️ WebSocket fermé");
-      ws = null;
-      // Pas de polling HTTP, seulement WebSocket
-    };
-  } catch (e) {
-    console.error("WebSocket initialization error:", e);
-    // Pas de fallback HTTP
+  } catch {
+    /* WebSocket non disponible */
   }
 }
 
-async function updateDataFetch() {
-  try {
-    const response = await fetch("/api/computers");
-    computersData = await response.json();
-    updateStats();
-    renderComputers();
-  } catch (error) {
-    console.error("Error fetching data:", error);
+function setWsStatus(ok) {
+  document.getElementById("ws-dot").className =
+    "ws-dot" + (ok ? "" : " disconnected");
+  document.getElementById("ws-label").textContent = ok
+    ? "WebSocket actif"
+    : "Déconnecté";
+}
+
+// ─── HISTORIQUE ───────────────────────────────────────────────────
+function pushHistory(hostname, data) {
+  const h = chartHistory[hostname];
+  const now = new Date().toLocaleTimeString("fr", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  h.labels.push(now);
+  h.cpu.push(+(data.cpu_percent || 0).toFixed(1));
+  h.ram.push(+(data.memory?.percent || 0).toFixed(1));
+  h.disk.push(+(data.disk?.percent || 0).toFixed(1));
+  if (h.labels.length > MAX_POINTS) {
+    h.labels.shift();
+    h.cpu.shift();
+    h.ram.shift();
+    h.disk.shift();
   }
 }
 
-// Keep updateData as alias for backward compatibility
-async function updateData() {
-  return updateDataFetch();
-}
-
+// ─── STATS TOPBAR ─────────────────────────────────────────────────
 function updateStats() {
   const total = Object.keys(computersData).length;
-  const online = total; // Assuming all in data are online
-  const offline = 0; // For now, no offline tracking
-  const connections = total;
-
   document.getElementById("total-pcs").textContent = total;
-  document.getElementById("online-pcs").textContent = online;
-  document.getElementById("offline-pcs").textContent = offline;
-  document.getElementById("total-connections").textContent = connections;
+  document.getElementById("online-pcs").textContent = total;
+  document.getElementById("offline-pcs").textContent = 0;
+  document.getElementById("total-connections").textContent = total;
 }
 
+// ─── GRILLE AGENTS ────────────────────────────────────────────────
 function renderComputers() {
   const grid = document.getElementById("computers-grid");
-  const noComputers = document.getElementById("no-computers");
+  const empty = document.getElementById("no-computers");
+  const keys = Object.keys(computersData);
 
-  if (Object.keys(computersData).length === 0) {
+  if (!keys.length) {
     grid.innerHTML = "";
-    noComputers.style.display = "block";
+    empty.style.display = "flex";
+    refreshIcons();
     return;
   }
+  empty.style.display = "none";
 
-  noComputers.style.display = "none";
-  grid.innerHTML = "";
+  keys.forEach((hostname) => {
+    let card = document.getElementById("card-" + hostname);
+    if (!card) {
+      card = document.createElement("div");
+      card.className = "computer-card";
+      card.id = "card-" + hostname;
+      card.onclick = () => openModal(hostname);
+      grid.appendChild(card);
+    }
+    card.innerHTML = buildCardHTML(hostname, computersData[hostname]);
+  });
 
-  for (const [hostname, data] of Object.entries(computersData)) {
-    const card = createComputerCard(hostname, data);
-    grid.appendChild(card);
-  }
+  // Supprimer les cartes d'agents déconnectés
+  grid.querySelectorAll(".computer-card").forEach((c) => {
+    if (!computersData[c.id.replace("card-", "")]) c.remove();
+  });
+
+  refreshIcons();
 }
 
-function createComputerCard(hostname, data) {
-  const card = document.createElement("div");
-  card.className = "computer-card";
-  card.onclick = () => openModal(hostname);
+function buildCardHTML(hostname, data) {
+  const cpu = (data.cpu_percent || 0).toFixed(1);
+  const ram = (data.memory?.percent || 0).toFixed(1);
+  const disk = (data.disk?.percent || 0).toFixed(1);
 
-  const cpuPercent = data.cpu_percent || 0;
-  const ramPercent = data.memory?.percent || 0;
-  const ramUsed = data.memory?.used || 0;
-  const ramTotal = data.memory?.total || 0;
-
-  // Extract IP from interfaces
-  let ipAddress = "N/A";
+  let ip = "N/A";
   if (data.interfaces) {
-    for (const [interfaceName, interfaceData] of Object.entries(
-      data.interfaces,
-    )) {
-      if (interfaceData.addresses) {
-        for (const addr of interfaceData.addresses) {
-          if (addr.type === "IPv4" && addr.address !== "127.0.0.1") {
-            ipAddress = addr.address;
-            break;
-          }
+    for (const iface of Object.values(data.interfaces)) {
+      for (const addr of iface.addresses || []) {
+        if (addr.type === "IPv4" && addr.address !== "127.0.0.1") {
+          ip = addr.address;
+          break;
         }
-        if (ipAddress !== "N/A") break;
       }
+      if (ip !== "N/A") break;
     }
   }
 
-  card.innerHTML = `
-        <div class="computer-header">
-            <h3>${hostname}</h3>
-            <div class="status online">● En ligne</div>
+  return `
+    <div class="card-header">
+      <div class="card-host">
+        <i data-lucide="monitor"></i>
+        ${hostname}
+      </div>
+      <span class="badge online">EN LIGNE</span>
+    </div>
+    <div class="card-metrics">
+      <div class="metric-row">
+        <div class="metric-head">
+          <span class="metric-name"><i data-lucide="cpu"></i> CPU</span>
+          <span class="metric-pct" style="color:var(--cpu)">${cpu}%</span>
         </div>
-        <div class="computer-metrics">
-            <div class="metric">
-                <div class="metric-label">CPU</div>
-                <div class="metric-value">${cpuPercent.toFixed(1)}%</div>
-                <div class="progress-bar">
-                    <div class="progress-fill cpu-fill" style="width: ${cpuPercent}%"></div>
-                </div>
-            </div>
-            <div class="metric">
-                <div class="metric-label">RAM</div>
-                <div class="metric-value">${ramPercent.toFixed(1)}%</div>
-                <div class="progress-bar">
-                    <div class="progress-fill ram-fill" style="width: ${ramPercent}%"></div>
-                </div>
-            </div>
+        <div class="bar-track"><div class="bar-fill bar-cpu" style="width:${cpu}%"></div></div>
+      </div>
+      <div class="metric-row">
+        <div class="metric-head">
+          <span class="metric-name"><i data-lucide="memory-stick"></i> RAM</span>
+          <span class="metric-pct" style="color:var(--ram)">${ram}%</span>
         </div>
-        <div class="computer-info">
-            <div class="info-item">
-                <span class="info-label">OS:</span>
-                <span class="info-value">${data.system || "N/A"}</span>
-            </div>
-            <div class="info-item">
-                <span class="info-label">IP:</span>
-                <span class="info-value">${ipAddress}</span>
-            </div>
+        <div class="bar-track"><div class="bar-fill bar-ram" style="width:${ram}%"></div></div>
+      </div>
+      <div class="metric-row">
+        <div class="metric-head">
+          <span class="metric-name"><i data-lucide="hard-drive"></i> DISK</span>
+          <span class="metric-pct" style="color:var(--disk)">${disk}%</span>
         </div>
-    `;
-
-  return card;
+        <div class="bar-track"><div class="bar-fill bar-disk" style="width:${disk}%"></div></div>
+      </div>
+    </div>
+    <div class="card-footer">
+      <div class="footer-item"><i data-lucide="globe"></i> ${ip}</div>
+      <div class="footer-item"><i data-lucide="layers"></i> ${(data.system || "N/A").split(" ")[0]}</div>
+    </div>
+  `;
 }
 
+// ─── MODAL ────────────────────────────────────────────────────────
 function openModal(hostname) {
   currentHostname = hostname;
   const data = computersData[hostname];
-  document.getElementById("modal-title").textContent = `Détails - ${hostname}`;
-  modal.style.display = "block";
+  document.getElementById("modal-title").textContent = hostname;
+  document.getElementById("modal-ip").textContent = data.ip || "";
+  document.getElementById("modal").classList.add("open");
+  switchTab("overview");
+}
 
-  // Switch to overview tab on first open
-  // If modal already open for this host, keep the current tab
-  const activeContent = document.querySelector(".tab-content.active");
-  if (!activeContent || activeContent.id === "tab-overview") {
-    switchTab("overview");
-  } else {
-    // reload current tab content
-    const tabName = activeContent.id.replace("tab-", "");
-    loadTabContent(tabName);
+function closeModal() {
+  document.getElementById("modal").classList.remove("open");
+  if (liveChart) {
+    liveChart.destroy();
+    liveChart = null;
   }
+  currentHostname = null;
 }
 
-function updateModalContent(hostname) {
-  // Ne change pas l'onglet actif, recharge seulement le contenu courant
-  currentHostname = hostname;
-  document.getElementById("modal-title").textContent = `Détails - ${hostname}`;
-  const activeContent = document.querySelector(".tab-content.active");
-  const tabName = activeContent
-    ? activeContent.id.replace("tab-", "")
-    : "overview";
-  loadTabContent(tabName);
-}
-
-function switchTab(tabName) {
-  // Update tab buttons
-  document.querySelectorAll(".tab").forEach((tab) => {
-    tab.classList.remove("active");
-  });
+// ─── TABS ─────────────────────────────────────────────────────────
+function switchTab(name) {
   document
-    .querySelector(`[onclick="switchTab('${tabName}')"]`)
+    .querySelectorAll(".tab")
+    .forEach((t) => t.classList.remove("active"));
+  document
+    .querySelector(`[onclick="switchTab('${name}')"]`)
     .classList.add("active");
+  document
+    .querySelectorAll(".tab-content")
+    .forEach((c) => c.classList.remove("active"));
+  document.getElementById("tab-" + name).classList.add("active");
 
-  // Update tab content
-  document.querySelectorAll(".tab-content").forEach((content) => {
-    content.classList.remove("active");
-  });
-  document.getElementById(`tab-${tabName}`).classList.add("active");
-
-  // Load tab content
-  loadTabContent(tabName);
-}
-
-function loadTabContent(tabName) {
-  const data = computersData[currentHostname];
-  const content = document.getElementById(`tab-${tabName}`);
-
-  if (!data) {
-    content.innerHTML = "<p>Aucune donnée disponible</p>";
-    return;
+  if (liveChart) {
+    liveChart.destroy();
+    liveChart = null;
   }
 
-  switch (tabName) {
+  const data = computersData[currentHostname];
+  if (!data) return;
+
+  switch (name) {
     case "overview":
-      content.innerHTML = generateOverviewContent(data);
+      renderOverview(currentHostname);
       break;
     case "processes":
-      content.innerHTML = generateProcessesContent(data);
+      renderProcesses(data);
       break;
     case "network":
-      content.innerHTML = generateNetworkContent(data);
+      renderNetwork(data);
       break;
     case "protocols":
-      content.innerHTML = generateProtocolsContent(data);
+      renderProtocols(data);
       break;
   }
+  refreshIcons();
 }
 
-function generateOverviewContent(data) {
-  const cpuPercent = data.cpu_percent || 0;
-  const ramPercent = data.memory?.percent || 0;
-  const ramUsed = (data.memory?.used / 1024 ** 3 || 0).toFixed(2);
-  const ramTotal = (data.memory?.total / 1024 ** 3 || 0).toFixed(2);
+// ─── OVERVIEW ─────────────────────────────────────────────────────
+function renderOverview(hostname) {
+  const data = computersData[hostname];
+  const cpu = (data.cpu_percent || 0).toFixed(1);
+  const ram = (data.memory?.percent || 0).toFixed(1);
+  const disk = (data.disk?.percent || 0).toFixed(1);
+  const ramUsed = ((data.memory?.used || 0) / 1e9).toFixed(1);
+  const ramTotal = ((data.memory?.total || 0) / 1e9).toFixed(1);
+  const diskUsed = ((data.disk?.used || 0) / 1e9).toFixed(0);
+  const diskTotal = ((data.disk?.total || 0) / 1e9).toFixed(0);
 
-  return `
-        <div class="overview-grid">
-            <div class="overview-card">
-                <h4>🔥 Processeur</h4>
-                <div class="metric-large">
-                    <div class="metric-value">${cpuPercent.toFixed(1)}%</div>
-                    <div class="progress-bar large">
-                        <div class="progress-fill cpu-fill" style="width: ${cpuPercent}%"></div>
-                    </div>
-                </div>
-            </div>
-            <div class="overview-card">
-                <h4>🧠 Mémoire</h4>
-                <div class="metric-large">
-                    <div class="metric-value">${ramPercent.toFixed(1)}%</div>
-                    <div class="progress-bar large">
-                        <div class="progress-fill ram-fill" style="width: ${ramPercent}%"></div>
-                    </div>
-                    <div class="metric-text">${ramUsed} GB / ${ramTotal} GB</div>
-                </div>
-            </div>
-            <div class="overview-card">
-                <h4>💻 Système</h4>
-                <div class="system-info">
-                    <div class="info-item"><span class="info-label">OS:</span> <span class="info-value">${data.system || "N/A"}</span></div>
-                    <div class="info-item"><span class="info-label">Version:</span> <span class="info-value">${data.system_version || "N/A"}</span></div>
-                    <div class="info-item"><span class="info-label">Architecture:</span> <span class="info-value">${data.architecture || "N/A"}</span></div>
-                </div>
-            </div>
-            <div class="overview-card">
-                <h4>🌐 Réseau</h4>
-                <div class="system-info">
-                    <div class="info-item"><span class="info-label">IP:</span> <span class="info-value">${data.ip || "N/A"}</span></div>
-                    <div class="info-item"><span class="info-label">Hostname:</span> <span class="info-value">${data.hostname || "N/A"}</span></div>
-                    <div class="info-item"><span class="info-label">Dernière MAJ:</span> <span class="info-value">${data.timestamp || "N/A"}</span></div>
-                </div>
-            </div>
+  // Bloc graphique : canvas si Chart.js OK, message hors-ligne sinon
+  const chartBlock = CHARTJS_OK
+    ? `<div class="chart-wrap"><canvas id="live-chart"></canvas></div>`
+    : `<div class="chart-offline">
+         <i data-lucide="wifi-off"></i>
+         Graphiques indisponibles — Chart.js non chargé (mode hors ligne)
+       </div>`;
+
+  document.getElementById("tab-overview").innerHTML = `
+    <div class="overview-grid">
+      <div class="ov-card">
+        <div class="ov-card-title"><i data-lucide="cpu"></i> PROCESSEUR</div>
+        <div class="ov-big" style="color:var(--cpu)">${cpu}<span style="font-size:1rem;color:var(--muted)">%</span></div>
+        <div class="ov-bar-wrap">
+          <div class="ov-bar-track"><div class="ov-bar-fill bar-cpu" style="width:${cpu}%"></div></div>
         </div>
-    `;
+        <div class="ov-sub">Utilisation temps réel</div>
+      </div>
+      <div class="ov-card">
+        <div class="ov-card-title"><i data-lucide="memory-stick"></i> MÉMOIRE RAM</div>
+        <div class="ov-big" style="color:var(--ram)">${ram}<span style="font-size:1rem;color:var(--muted)">%</span></div>
+        <div class="ov-bar-wrap">
+          <div class="ov-bar-track"><div class="ov-bar-fill bar-ram" style="width:${ram}%"></div></div>
+        </div>
+        <div class="ov-sub">${ramUsed} GB / ${ramTotal} GB utilisés</div>
+      </div>
+      <div class="ov-card">
+        <div class="ov-card-title"><i data-lucide="hard-drive"></i> STOCKAGE</div>
+        <div class="ov-big" style="color:var(--disk)">${disk}<span style="font-size:1rem;color:var(--muted)">%</span></div>
+        <div class="ov-bar-wrap">
+          <div class="ov-bar-track"><div class="ov-bar-fill bar-disk" style="width:${disk}%"></div></div>
+        </div>
+        <div class="ov-sub">${diskUsed} GB / ${diskTotal} GB utilisés</div>
+      </div>
+      <div class="ov-card">
+        <div class="ov-card-title"><i data-lucide="info"></i> SYSTÈME</div>
+        <div class="sysinfo-row"><span class="sysinfo-key">OS</span><span class="sysinfo-val">${data.system || "N/A"}</span></div>
+        <div class="sysinfo-row"><span class="sysinfo-key">VERSION</span><span class="sysinfo-val">${data.system_version || "N/A"}</span></div>
+        <div class="sysinfo-row"><span class="sysinfo-key">ARCH</span><span class="sysinfo-val">${data.architecture || "N/A"}</span></div>
+        <div class="sysinfo-row"><span class="sysinfo-key">IP</span><span class="sysinfo-val">${data.ip || "N/A"}</span></div>
+        <div class="sysinfo-row"><span class="sysinfo-key">MAJ</span><span class="sysinfo-val">${data.timestamp || "N/A"}</span></div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-header">
+        <div class="chart-title"><i data-lucide="activity"></i> ACTIVITÉ EN TEMPS RÉEL</div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:var(--cpu)"></div> CPU</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--ram)"></div> RAM</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--disk)"></div> DISK</div>
+        </div>
+      </div>
+      ${chartBlock}
+    </div>
+  `;
+
+  refreshIcons();
+  if (CHARTJS_OK) initLiveChart(hostname);
 }
 
-function generateProcessesContent(data) {
-  const processes = data.processes || [];
-  if (processes.length === 0) {
-    return "<p>Aucune information sur les processus disponible.</p>";
+// ─── CHART.JS ─────────────────────────────────────────────────────
+function initLiveChart(hostname) {
+  if (liveChart) {
+    liveChart.destroy();
+    liveChart = null;
   }
+  const canvas = document.getElementById("live-chart");
+  if (!canvas || !CHARTJS_OK) return;
 
-  let html = '<div class="processes-table">';
-  html += `
-    <table class="proc-table">
+  const h = chartHistory[hostname] || {
+    cpu: [],
+    ram: [],
+    disk: [],
+    labels: [],
+  };
+
+  const mkDataset = (label, data, color) => ({
+    label,
+    data: [...data],
+    borderColor: color,
+    backgroundColor: color + "18",
+    borderWidth: 1.5,
+    pointRadius: 0,
+    tension: 0.4,
+    fill: true,
+  });
+
+  liveChart = new Chart(canvas, {
+    type: "line",
+    data: {
+      labels: [...h.labels],
+      datasets: [
+        mkDataset("CPU", h.cpu, "#ff6b6b"),
+        mkDataset("RAM", h.ram, "#4ecdc4"),
+        mkDataset("DISK", h.disk, "#a78bfa"),
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 300 },
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        x: {
+          ticks: {
+            color: "#5a6a85",
+            font: { family: "JetBrains Mono", size: 10 },
+            maxTicksLimit: 8,
+            maxRotation: 0,
+          },
+          grid: { color: "rgba(255,255,255,0.04)" },
+          border: { color: "rgba(255,255,255,0.08)" },
+        },
+        y: {
+          min: 0,
+          max: 100,
+          ticks: {
+            color: "#5a6a85",
+            font: { family: "JetBrains Mono", size: 10 },
+            callback: (v) => v + "%",
+          },
+          grid: { color: "rgba(255,255,255,0.04)" },
+          border: { color: "rgba(255,255,255,0.08)" },
+        },
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: "#0d1117",
+          borderColor: "#1e2636",
+          borderWidth: 1,
+          titleColor: "#5a6a85",
+          bodyColor: "#e2e8f0",
+          titleFont: { family: "JetBrains Mono", size: 10 },
+          bodyFont: { family: "JetBrains Mono", size: 11 },
+          callbacks: {
+            label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y}%`,
+          },
+        },
+      },
+    },
+  });
+}
+
+function updateLiveChart(hostname) {
+  if (!liveChart || !CHARTJS_OK) return;
+  const h = chartHistory[hostname];
+  if (!h) return;
+  liveChart.data.labels = [...h.labels];
+  liveChart.data.datasets[0].data = [...h.cpu];
+  liveChart.data.datasets[1].data = [...h.ram];
+  liveChart.data.datasets[2].data = [...h.disk];
+  liveChart.update("none");
+}
+
+// ─── PROCESSUS ────────────────────────────────────────────────────
+function renderProcesses(data) {
+  const procs = data.processes || [];
+  document.getElementById("tab-processes").innerHTML = `
+    <div class="proc-header">
+      <span class="section-label">Processus actifs</span>
+      <span class="proc-count">${procs.length} processus</span>
+    </div>
+    <table>
       <thead>
         <tr>
-          <th>Processus</th>
-          <th>CPU %</th>
-          <th>RAM %</th>
-          <th>RAM (MB)</th>
-          <th>IO Lus (MB)</th>
-          <th>IO Écrits (MB)</th>
+          <th>NOM</th><th>CPU %</th><th>RAM %</th><th>RAM (MB)</th><th>IO LUS</th><th>IO ÉCRITS</th>
         </tr>
       </thead>
       <tbody>
-  `;
-
-  processes.slice(0, 20).forEach((process) => {
-    const ramMB = ((process.memory_rss || 0) / 1024 ** 2).toFixed(2);
-    const ioRead = ((process.io_read_bytes || 0) / 1024 ** 2).toFixed(2);
-    const ioWrite = ((process.io_write_bytes || 0) / 1024 ** 2).toFixed(2);
-
-    html += `
-      <tr>
-        <td title="${process.name || "N/A"}">${(process.name || "N/A").substring(0, 30)}</td>
-        <td>${(process.cpu_percent || 0).toFixed(1)}%</td>
-        <td>${(process.memory_percent || 0).toFixed(1)}%</td>
-        <td>${ramMB}</td>
-        <td>${ioRead}</td>
-        <td>${ioWrite}</td>
-      </tr>
-    `;
-  });
-
-  html += `
+        ${procs
+          .slice(0, 30)
+          .map(
+            (p) => `
+          <tr>
+            <td class="td-name" title="${p.name || ""}">${p.name || "N/A"}</td>
+            <td class="td-cpu">${(p.cpu_percent || 0).toFixed(1)}%</td>
+            <td class="td-ram">${(p.memory_percent || 0).toFixed(1)}%</td>
+            <td>${((p.memory_rss || 0) / 1e6).toFixed(1)} MB</td>
+            <td>${((p.io_read_bytes || 0) / 1e6).toFixed(1)} MB</td>
+            <td>${((p.io_write_bytes || 0) / 1e6).toFixed(1)} MB</td>
+          </tr>`,
+          )
+          .join("")}
       </tbody>
     </table>
-  </div>
   `;
-  return html;
 }
 
-function generateNetworkContent(data) {
-  const network = data.network || {};
-  return `
-        <div class="network-info">
-            <div class="network-card">
-                <h4>📊 Statistiques réseau</h4>
-                <div class="network-stats">
-                    <div class="stat-item">
-                        <span class="stat-label">⬇️ Débit reçu:</span>
-                        <span class="stat-value">${(network.bytes_recv_per_sec / 1024).toFixed(2)} KB/s</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">⬆️ Débit envoyé:</span>
-                        <span class="stat-value">${(network.bytes_sent_per_sec / 1024).toFixed(2)} KB/s</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">📦 Total reçu:</span>
-                        <span class="stat-value">${(network.bytes_recv / 1024 ** 3).toFixed(2)} GB</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">📤 Total envoyé:</span>
-                        <span class="stat-value">${(network.bytes_sent / 1024 ** 3).toFixed(2)} GB</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">🔌 Connexions actives:</span>
-                        <span class="stat-value">${network.active_connections || 0}</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
+// ─── RÉSEAU ───────────────────────────────────────────────────────
+function renderNetwork(data) {
+  const net = data.network || {};
+  const fmt = (v) => (isNaN(v) ? "0" : v);
+  document.getElementById("tab-network").innerHTML = `
+    <div class="net-grid">
+      <div class="net-card">
+        <div class="net-card-title"><i data-lucide="arrow-down-circle"></i> DÉBIT ENTRANT</div>
+        <div class="net-stat"><span class="net-key">DÉBIT/s</span><span class="net-val" style="color:var(--green)">${fmt((net.bytes_recv_per_sec / 1024).toFixed(1))} KB/s</span></div>
+        <div class="net-stat"><span class="net-key">TOTAL REÇU</span><span class="net-val">${fmt((net.bytes_recv / 1e9).toFixed(2))} GB</span></div>
+      </div>
+      <div class="net-card">
+        <div class="net-card-title"><i data-lucide="arrow-up-circle"></i> DÉBIT SORTANT</div>
+        <div class="net-stat"><span class="net-key">DÉBIT/s</span><span class="net-val" style="color:var(--cpu)">${fmt((net.bytes_sent_per_sec / 1024).toFixed(1))} KB/s</span></div>
+        <div class="net-stat"><span class="net-key">TOTAL ENVOYÉ</span><span class="net-val">${fmt((net.bytes_sent / 1e9).toFixed(2))} GB</span></div>
+      </div>
+      <div class="net-card">
+        <div class="net-card-title"><i data-lucide="zap"></i> CONNEXIONS</div>
+        <div class="net-stat"><span class="net-key">ACTIVES</span><span class="net-val" style="color:var(--accent)">${net.active_connections || 0}</span></div>
+      </div>
+    </div>
+  `;
+  refreshIcons();
 }
 
-function generateProtocolsContent(data) {
-  const protocols = data.protocols || {};
-  let html = '<div class="protocols-list">';
+// ─── PROTOCOLES ───────────────────────────────────────────────────
+function renderProtocols(data) {
+  const proto = data.protocols || {};
+  let html = '<div class="proto-grid">';
 
-  // TCP
-  if (protocols.tcp) {
+  if (proto.tcp)
     html += `
-      <div class="protocol-item">
-        <h4>🔵 TCP</h4>
-        <div class="protocol-stats">
-          <div class="stat-item">
-            <span class="stat-label">Établies:</span>
-            <span class="stat-value">${protocols.tcp.established || 0}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">En écoute:</span>
-            <span class="stat-value">${protocols.tcp.listen || 0}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">TIME_WAIT:</span>
-            <span class="stat-value">${protocols.tcp.time_wait || 0}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">CLOSE_WAIT:</span>
-            <span class="stat-value">${protocols.tcp.close_wait || 0}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">Connexions actives:</span>
-            <span class="stat-value">${(protocols.tcp.connections || []).length}</span>
-          </div>
-        </div>
-      </div>
-    `;
-  }
+    <div class="proto-card">
+      <div class="proto-title" style="color:var(--accent)"><i data-lucide="radio"></i> TCP</div>
+      <div class="proto-stat"><span class="proto-key">Établies</span><span class="proto-val" style="color:var(--green)">${proto.tcp.established || 0}</span></div>
+      <div class="proto-stat"><span class="proto-key">En écoute</span><span class="proto-val">${proto.tcp.listen || 0}</span></div>
+      <div class="proto-stat"><span class="proto-key">TIME_WAIT</span><span class="proto-val" style="color:var(--yellow)">${proto.tcp.time_wait || 0}</span></div>
+      <div class="proto-stat"><span class="proto-key">CLOSE_WAIT</span><span class="proto-val" style="color:var(--red)">${proto.tcp.close_wait || 0}</span></div>
+    </div>`;
 
-  // UDP
-  if (protocols.udp) {
+  if (proto.udp)
     html += `
-      <div class="protocol-item">
-        <h4>🟡 UDP</h4>
-        <div class="protocol-stats">
-          <div class="stat-item">
-            <span class="stat-label">Total:</span>
-            <span class="stat-value">${protocols.udp.total || 0}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">Connexions actives:</span>
-            <span class="stat-value">${(protocols.udp.connections || []).length}</span>
-          </div>
-        </div>
-      </div>
-    `;
-  }
+    <div class="proto-card">
+      <div class="proto-title" style="color:var(--yellow)"><i data-lucide="radio-tower"></i> UDP</div>
+      <div class="proto-stat"><span class="proto-key">Total</span><span class="proto-val">${proto.udp.total || 0}</span></div>
+      <div class="proto-stat"><span class="proto-key">Connexions actives</span><span class="proto-val">${(proto.udp.connections || []).length}</span></div>
+    </div>`;
 
-  // Total
-  if (protocols.total !== undefined) {
+  if (proto.total !== undefined)
     html += `
-      <div class="protocol-item">
-        <h4>📊 TOTAL</h4>
-        <div class="protocol-stats">
-          <div class="stat-item">
-            <span class="stat-label">Connexions réseau:</span>
-            <span class="stat-value">${protocols.total}</span>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  if (Object.keys(protocols).length === 0) {
-    html += "<p>Aucune information sur les protocoles disponible.</p>";
-  }
+    <div class="proto-card">
+      <div class="proto-title" style="color:var(--muted)"><i data-lucide="bar-chart-2"></i> TOTAL</div>
+      <div class="proto-stat"><span class="proto-key">Connexions réseau</span><span class="proto-val" style="color:var(--accent)">${proto.total}</span></div>
+    </div>`;
 
   html += "</div>";
-  return html;
+  document.getElementById("tab-protocols").innerHTML = html;
+  refreshIcons();
 }

@@ -1,4 +1,5 @@
 @echo off
+setlocal enabledelayedexpansion
 title Monitoring System v2.0 - Installation
 color 0A
 
@@ -80,26 +81,22 @@ goto invalid
         echo [OK] server\config.py cree avec les parametres par defaut.
     ) else (
         echo [INFO] Configuration serveur existante trouvee.
-        set /p new_host="Voulez-vous modifier l'host du serveur ? (laissez vide pour garder l'actuel) : "
-        if not "%new_host%"=="" (
-            powershell -Command "(Get-Content server\config.py) -replace 'SERVER_HOST = \".*\"', 'SERVER_HOST = \"%new_host%\"' | Set-Content server\config.py"
-            echo [OK] Host mis a jour.
-        )
-        set /p new_port="Voulez-vous modifier le port du serveur ? (laissez vide pour garder l'actuel) : "
-        if not "%new_port%"=="" (
-            set /a test_port=%new_port% 2>nul
-            if not errorlevel 1 (
-                powershell -Command "(Get-Content server\config.py) -replace 'SERVER_PORT = \d+', 'SERVER_PORT = %new_port%' | Set-Content server\config.py"
-                echo [OK] Port mis a jour.
-            ) else (
-                echo [ERREUR] Le port doit etre un nombre entier positif.
-            )
-        )
+    )
+    set /p new_host="Modifier l'host du serveur? (vide pour garder) : "
+    if not "!new_host!"=="" (
+        python -c "import re,sys; v=sys.argv[1]; f=open('server/config.py','r'); c=f.read(); f.close(); c=re.sub(r'SERVER_HOST = \".+?\"', 'SERVER_HOST = \"'+v+'\"', c); f=open('server/config.py','w'); f.write(c); f.close()" "!new_host!"
+        echo [OK] Host mis a jour.
+    )
+
+    set /p new_port="Modifier le port du serveur? (vide pour garder) : "
+    if not "!new_port!"=="" (
+        python -c "import re,sys; v=sys.argv[1]; f=open('server/config.py','r'); c=f.read(); f.close(); c=re.sub(r'SERVER_PORT = [0-9]+', 'SERVER_PORT = '+v, c); f=open('server/config.py','w'); f.write(c); f.close()" "!new_port!"
+        echo [OK] Port mis a jour.
     )
 
     echo.
     set /p start="Voulez-vous demarrer le serveur maintenant ? (o/n) : "
-    if /i "%start%"=="o" (
+    if /i "!start!"=="o" (
         powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '#    #   ###    ###    ###    #    #' -ForegroundColor Yellow; Write-Host '#    #    #    #       #     #    #' -ForegroundColor Yellow; Write-Host '#    #    #    # ###   #     #    #' -ForegroundColor Yellow; Write-Host ' #  #     #    #   #   #     #    #' -ForegroundColor Yellow; Write-Host '  ##     ###    ###   ###   #####' -ForegroundColor Yellow; Write-Host '' -ForegroundColor Green; Write-Host '       VIGIL - Monitoring System' -ForegroundColor Green"
         cd server
         python server.py --mode web
@@ -155,28 +152,30 @@ goto end
             echo NETWORK_CONN_LIMIT = 100  # Nombre de connexions reseau a envoyer
         ) > agent\config.py
         echo [OK] agent\config.py cree avec les parametres par defaut.
-        set /p server_ip="Entrez l'IP/hostname du serveur central (defaut: 192.168.188.120) : "
-        if "%server_ip%"=="" set server_ip=192.168.188.120
-        set /p interval="Intervalle d'envoi en secondes (defaut 1) : "
-        if "%interval%"=="" set interval=1
-        powershell -Command "(Get-Content agent\config.py) -replace 'SERVER_IP = \".*\"', 'SERVER_IP = \"%server_ip%\"' | Set-Content agent\config.py"
-        powershell -Command "(Get-Content agent\config.py) -replace 'UPDATE_INTERVAL = \d*', 'UPDATE_INTERVAL = %interval%' | Set-Content agent\config.py"
     ) else (
         echo [INFO] Configuration agent existante trouvee.
-        set /p new_ip="Entrez l'IP/hostname du serveur central (laissez vide pour garder l'actuel) : "
-        if not "%new_ip%"=="" (
-            powershell -Command "(Get-Content agent\config.py) -replace 'SERVER_IP = \".*\"', 'SERVER_IP = \"%new_ip%\"' | Set-Content agent\config.py"
-            echo [OK] IP du serveur mise a jour.
-        )
-        set /p new_interval="Intervalle d'envoi en secondes (laissez vide pour garder l'actuel) : "
-        if not "%new_interval%"=="" (
-            powershell -Command "(Get-Content agent\config.py) -replace 'UPDATE_INTERVAL = \d*', 'UPDATE_INTERVAL = %new_interval%' | Set-Content agent\config.py"
-            echo [OK] Intervalle mis a jour.
-        )
+    )
+
+    set /p server_ip="Entrez l'IP/hostname du serveur central (laissez vide pour garder l'actuel) : "
+    if not "!server_ip!"=="" (
+        python -c "import re,sys; v=sys.argv[1]; f=open('agent/config.py','r'); c=f.read(); f.close(); c=re.sub(r'SERVER_IP = \".+?\"', 'SERVER_IP = \"'+v+'\"', c); f=open('agent/config.py','w'); f.write(c); f.close()" "!server_ip!"
+        echo [OK] IP du serveur mise a jour.
+    )
+    
+    set /p server_port="Entrez le port du serveur central (laissez vide pour garder l'actuel) : "
+    if not "!server_port!"=="" (
+        python -c "import re,sys; v=sys.argv[1]; f=open('agent/config.py','r'); c=f.read(); f.close(); c=re.sub(r'SERVER_PORT = [0-9]+', 'SERVER_PORT = '+v, c); f=open('agent/config.py','w'); f.write(c); f.close()" "!server_port!"
+        echo [OK] Port du serveur mis a jour.
+    )
+    
+    set /p interval="Intervalle d'envoi en secondes (laissez vide pour garder l'actuel) : "
+    if not "!interval!"=="" (
+        python -c "import re,sys; v=sys.argv[1]; f=open('agent/config.py','r'); c=f.read(); f.close(); c=re.sub(r'UPDATE_INTERVAL = [0-9]+', 'UPDATE_INTERVAL = '+v, c); f=open('agent/config.py','w'); f.write(c); f.close()" "!interval!"
+        echo [OK] Intervalle d'envoi mis a jour.
     )
 
     set /p start="Voulez-vous demarrer l'agent maintenant ? (o/n) : "
-    if /i "%start%"=="o" (
+    if /i "!start!"=="o" (
         powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host '#    #   ###    ###    ###    #    #' -ForegroundColor Yellow; Write-Host '#    #    #    #       #     #    #' -ForegroundColor Yellow; Write-Host '#    #    #    # ###   #     #    #' -ForegroundColor Yellow; Write-Host ' #  #     #    #   #   #     #    #' -ForegroundColor Yellow; Write-Host '  ##     ###    ###   ###   #####' -ForegroundColor Yellow; Write-Host '' -ForegroundColor Green; Write-Host '       VIGIL - Monitoring System' -ForegroundColor Green"
         cd agent
         python agent.py
@@ -201,5 +200,5 @@ echo ==========================================
 echo Installation terminee avec succes !
 echo ==========================================
 rem Nettoyage : supprimer les repertoires __pycache__ dans le workspace
-    powershell -Command "Get-ChildItem -Path . -Recurse -Directory -Filter __pycache__ | ForEach-Object { Remove-Item $_.FullName -Recurse -Force }" >nul 2>&1
+powershell -Command "Get-ChildItem -Path . -Recurse -Directory -Filter __pycache__ | ForEach-Object { Remove-Item $_.FullName -Recurse -Force }" >nul 2>&1
 pause
