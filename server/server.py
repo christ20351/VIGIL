@@ -16,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 from rich.console import Console
 from routes import setup_routes
 from websocket_handler import setup_websocket
-
+from db.storage import init_db, prune_older_than
 
 def print_banner():
     print("+-----------+")
@@ -35,6 +35,23 @@ templates = Jinja2Templates(directory="templates")
 
 # Data partagée
 computers_data = {}
+
+# initialisation stockage historique
+try:
+    # le module a été déplacé dans le package `db`
+    init_db()
+
+    # lancer un prune quotidien
+    def _pruner():
+        import time
+
+        while True:
+            time.sleep(24 * 3600)
+            prune_older_than(30)
+
+    threading.Thread(target=_pruner, daemon=True).start()
+except Exception:
+    pass
 
 # Setup routes
 setup_routes(app, templates, computers_data)

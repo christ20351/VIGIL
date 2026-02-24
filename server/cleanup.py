@@ -33,8 +33,44 @@ def clean_old_data(computers_data):
 
             for hostname in to_remove:
                 if hostname in computers_data:
-                    print(f"⚠️  {hostname} déconnecté (ping échoué)")
-                    del computers_data[hostname]
+                    data = computers_data[hostname]
+                    if not data.get("offline"):
+                        print(f"⚠️  {hostname} déconnecté (ping échoué)")
+                        data["offline"] = True
+                        data["offline_since"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+                        # envoyer alerte aux clients web
+                        try:
+                            import asyncio
+
+                            from websocket_handler import client_manager, main_loop
+
+                            if main_loop:
+                                asyncio.run_coroutine_threadsafe(
+                                    client_manager.broadcast(
+                                        {
+                                            "type": "alert",
+                                            "hostname": hostname,
+                                            "message": "Agent hors ligne (ping échoué)",
+                                            "timestamp": time.strftime(
+                                                "%Y-%m-%dT%H:%M:%S"
+                                            ),
+                                        }
+                                    ),
+                                    main_loop,
+                                )
+                                # mise à jour de l'agent
+                                asyncio.run_coroutine_threadsafe(
+                                    client_manager.broadcast(
+                                        {
+                                            "type": "agent_update",
+                                            "hostname": hostname,
+                                            "data": data,
+                                        }
+                                    ),
+                                    main_loop,
+                                )
+                        except Exception:
+                            pass
 
     # Démarre le thread de nettoyage en arrière-plan
     thread = threading.Thread(target=ping_loop, daemon=True)

@@ -25,8 +25,8 @@
     <!-- APRÈS (local, fonctionne sans internet) -->
     <script src="/static/vendor/chart.umd.min.js"></script>
     <script src="/static/vendor/lucide.js"></script>
-    <script src="../static/script.js"></script>
-    <link rel="stylesheet" href="../static/style.css" />
+    <script src="/static/script.js"></script>
+    <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
     <div class="app">
@@ -40,10 +40,15 @@
           <div class="nav-item active">
             <i data-lucide="layout-dashboard"></i> Dashboard
           </div>
-        <div class="nav-item"><i data-lucide="server"></i> Agents</div>
+          <div class="nav-item"><i data-lucide="server"></i> Agents</div>
           <div class="nav-item"><i data-lucide="activity"></i> Activité</div>
+          <div class="nav-item" id="nav-notifications">
+            <i data-lucide="bell"></i>
+            <span class="nav-text">Notifications</span>
+            <span class="nav-badge" id="notif-count">0</span>
+          </div>
           <div class="nav-item"><i data-lucide="shield"></i> Sécurité</div>
-          <div class="nav-item"><i data-lucide="settings"></i> Paramètres</div> 
+          <div class="nav-item"><i data-lucide="settings"></i> Paramètres</div>
         </nav>
         <div class="sidebar-footer">
           <div class="ws-status">
@@ -59,6 +64,7 @@
         <div class="topbar">
           <div class="topbar-title">INFRASTRUCTURE / AGENTS EN DIRECT</div>
           <div class="topbar-stats">
+            <div id="alerts" class="alerts-container"></div>
             <div class="kpi">
               <div class="kpi-val blue" id="total-pcs">0</div>
               <div class="kpi-label">Total</div>
@@ -98,6 +104,7 @@
             <i data-lucide="monitor"></i>
             <span class="modal-title" id="modal-title">Agent</span>
             <span class="modal-badge" id="modal-ip">—</span>
+            <span class="modal-status" id="modal-status"></span>
           </div>
           <button class="btn-close" id="btn-close">
             <i data-lucide="x"></i>
@@ -114,6 +121,9 @@
           <button class="tab" onclick="switchTab('network')">
             <i data-lucide="network"></i> Réseau
           </button>
+          <button class="tab" onclick="switchTab('history')">
+            <i data-lucide="clock"></i> Historique
+          </button>
           <button class="tab" onclick="switchTab('protocols')">
             <i data-lucide="plug"></i> Protocoles
           </button>
@@ -123,11 +133,10 @@
           <div id="tab-overview" class="tab-content active"></div>
           <div id="tab-processes" class="tab-content"></div>
           <div id="tab-network" class="tab-content"></div>
+          <div id="tab-history" class="tab-content"></div>
           <div id="tab-protocols" class="tab-content"></div>
         </div>
       </div>
     </div>
-
-    <script src="script.js"></script>
   </body>
 </html>
