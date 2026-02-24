@@ -6,4 +6,4 @@ _pycache__/
 *.pyc
 feature.txt
 /server/db/metrics.db-*
-server/db/metrics.db
+/server/db/metrics.db
