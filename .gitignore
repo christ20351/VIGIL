@@ -5,4 +5,5 @@ uv.lock
 _pycache__/
 *.pyc
 feature.txt
-metrics.db-*
+/server/db/metrics.db-*
+server/db/metrics.db

@@ -134,6 +134,12 @@ install.bat
    python agent.py
    ```
 
+> ⚠️ **Important** : le fichier de données `metrics.db` n'est **pas** inclus
+> dans le dépôt. Il est généré automatiquement dans `server/db/metrics.db`
+> lors du premier démarrage du serveur. Chaque utilisateur/clône aura sa
+> propre base vide, et le fichier est ignoré par Git grâce au
+> `.gitignore` ci‑dessous.
+
 ---
 
 ## 🔧 Configuration
