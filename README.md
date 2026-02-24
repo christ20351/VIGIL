@@ -139,6 +139,21 @@ install.bat
 > lors du premier démarrage du serveur. Chaque utilisateur/clône aura sa
 > propre base vide, et le fichier est ignoré par Git grâce au
 > `.gitignore` ci‑dessous.
+>
+> Si vous avez commis ce fichier par mégarde et que le `git push` est refusé
+> parce qu'il est trop volumineux, procédez ainsi avant de réessayer :
+>
+> ```bash
+> git rm --cached server/db/metrics.db     # arrête le suivi sans supprimer
+> git commit -m "Remove local database file"
+> # nettoyer l'historique si nécessaire (ex : avec git-filter-repo ou BFG)
+> # e.g. git filter-repo --path server/db/metrics.db --invert-paths
+> git push --force origin main            # pousse l'historique modifié
+> ```
+>
+> Ces commandes supprimeront le fichier de l'historique Git et débloqueront
+> la mise à jour du dépôt distant. Vous pouvez ensuite démarrer le serveur
+> normalement et un nouveau `metrics.db` vide sera créé localement.
 
 ---
 
