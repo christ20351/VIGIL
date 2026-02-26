@@ -30,48 +30,10 @@ STATIC_DIR = BASE_DIR / "static"
 TEMPLATES_DIR = BASE_DIR / "templates"
 
 
-def _ensure_config():
-    """
-    Génère server/config.yaml à côté du binaire/script si absent.
-    Évite toute double-demande : on ne pose AUCUNE question ici,
-    l'utilisateur édite le fichier manuellement si besoin.
-    """
-    config_path = BASE_DIR / "config.yaml"
-    if config_path.exists():
-        return  # déjà présent, on ne touche à rien
-
-    default = """\
-# Configuration VIGIL Server — éditez ce fichier puis relancez
-SERVER_HOST: "0.0.0.0"
-SERVER_PORT: 5000
-
-ALLOWED_AGENT_IPS: []
-ALLOWED_CLIENT_IPS: []
-
-ENABLE_AUTH: false
-AUTH_TOKEN: "changez-moi"
-
-TIMEOUT: 60
-PROCESS_LIMIT: 100
-NETWORK_CONN_LIMIT: 100
-
-CPU_ALERT_THRESHOLD: 90
-CPU_ALERT_DURATION: 25
-RAM_ALERT_THRESHOLD: 95
-DISK_ALERT_THRESHOLD: 90
-"""
-    config_path.write_text(default, encoding="utf-8")
-    print(f"[VIGIL] config.yaml créé → {config_path}")
-    print("[VIGIL] Éditez-le puis relancez le serveur.")
-
-
-# ── Génération config si besoin (1 seul appel, silencieux si déjà là) ──
-_ensure_config()
-
-
 # ================================================================
 #  IMPORT DES MODULES INTERNES
-# (après _ensure_config pour que config.py trouve son yaml)
+# config.py gère lui-même la création/chargement de config.yaml
+# et le setup interactif au premier lancement
 # ================================================================
 from cleanup import clean_old_data
 from config import SERVER_HOST, SERVER_PORT
@@ -96,7 +58,12 @@ def print_banner():
     print("+-----------+")
     print("       VIGIL — Monitoring lightweight")
 
+
+# ================================================================
+#  APPLICATION FASTAPI
+# ================================================================
 app = FastAPI(name="PC Monitor Server")
+
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):

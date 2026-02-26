@@ -2,12 +2,37 @@ import binascii
 import hashlib
 import hmac
 import os
+import sys
 from typing import Optional
 
 import config
 import yaml
 
-USERS_PATH = os.path.join(os.path.dirname(__file__), "users.yaml")
+
+# ================================================================
+#  RÉSOLUTION DU CHEMIN USERS.YAML (PyInstaller + dev)
+# ================================================================
+
+
+def _get_users_path() -> str:
+    """
+    Retourne le chemin absolu de users.yaml :
+    - Binaire PyInstaller → dossier du .exe  (sys.executable)
+    - Script Python normal → dossier de auth.py
+    """
+    if getattr(sys, "frozen", False):
+        base = os.path.dirname(sys.executable)
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, "users.yaml")
+
+
+USERS_PATH = _get_users_path()
+
+
+# ================================================================
+#  LECTURE / ÉCRITURE
+# ================================================================
 
 
 def _load_users() -> dict:
@@ -16,7 +41,6 @@ def _load_users() -> dict:
             data = yaml.safe_load(f) or {}
     except FileNotFoundError:
         data = {}
-    # ensure structure
     if "users" not in data:
         data["users"] = {}
     return data
@@ -48,6 +72,11 @@ def verify_credentials(username: str, password: str) -> bool:
     return _verify_password(stored, password)
 
 
+# ================================================================
+#  HASH / VÉRIFICATION MOT DE PASSE
+# ================================================================
+
+
 def _hash_password(password: str) -> str:
     salt = os.urandom(16)
     pwdhash = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100_000)
@@ -65,8 +94,13 @@ def _verify_password(stored_hash: str, password: str) -> bool:
         return False
 
 
+# ================================================================
+#  SESSIONS
+# ================================================================
+
+
 def make_token(username: str) -> str:
-    """Génère un jeton de session signé"""
+    """Génère un jeton de session signé."""
     secret = config.AUTH_TOKEN or ""
     msg = username.encode()
     sig = hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()
