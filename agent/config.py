@@ -1,27 +1,51 @@
-# ====================================
-# CONFIGURATION DE L'AGENT DE MONITORING v2.0
-# ====================================
+import os
 
-# === CONFIGURATION SERVEUR CIBLE ===
-# IP du serveur central (modifiez selon votre deploiement)
-SERVER_IP = "localhost"
-# Port du serveur
-SERVER_PORT = 8000
+import yaml
 
-# === CONFIGURATION AGENT ===
-# Intervalle d'envoi des donnees en secondes (1 pour temps reel)
-UPDATE_INTERVAL = 1
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
+_default = {
+    "SERVER_IP": "localhost",
+    "SERVER_PORT": 8000,
+    "UPDATE_INTERVAL": 1,
+    "TIMEOUT": 10,
+    "PROCESS_LIMIT": 100,
+    "NETWORK_CONN_LIMIT": 100,
+}
 
-# === SECURITE (optionnel) ===
-# Activer l'authentification par token
-ENABLE_AUTH = False
-# Token secret pour l'authentification
-AUTH_TOKEN = "votre-token-secret-ici"
-
-# === MONITORING ===
-TIMEOUT = 10  # Secondes avant de considerer un PC deconnecte
-  # Nombre de processus a monitorer
-NETWORK_CONN_LIMIT = 100  # Nombre de connexions reseau a envoyer
-
+def _load_config() -> dict:
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        data = {}
+    cfg = _default.copy()
+    cfg.update(data)
+    return cfg
 
 
+if not os.path.exists(CONFIG_PATH):
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        yaml.safe_dump(_default, f)
+
+
+_config_data = _load_config()
+
+for key, val in _config_data.items():
+    globals()[key] = val
+
+
+def save_config(updates: dict) -> None:
+    global _config_data
+    for k, v in updates.items():
+        if k in _default:
+            _config_data[k] = v
+            globals()[k] = v
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        yaml.safe_dump(_config_data, f)
+
+
+def reload() -> None:
+    global _config_data
+    _config_data = _load_config()
+    for key, val in _config_data.items():
+        globals()[key] = val

@@ -102,7 +102,7 @@ def _check_thresholds(hostname: str, data: dict):
     Le code appelant s'occupera du broadcast pour rester dans le contexte
     asynchrone.
 
-    Les règles par défaut peuvent être configurées dans `server/config.py`.
+    Les règles par défaut peuvent être configurées dans `server/config.yaml` (via le module config).
     """
     import time
 
@@ -184,27 +184,85 @@ async def agent_endpoint(websocket: WebSocket, computers_data):
     try:
         # IMPORTANT: Accepter d'abord, puis lire les messages
         await websocket.accept()
+        print(f"-> agent connection accepted from {client_ip}")
 
         # Attendre le premier message contenant le hostname (register)
-        initial_msg = await websocket.receive_json()
-
-        # Accepter "register" ou hostname directement
-        if initial_msg.get("type") == "register":
-            hostname = initial_msg.get("hostname")
-            agent_ip = initial_msg.get("local_ip")
-        else:
-            hostname = initial_msg.get("hostname")
-            agent_ip = initial_msg.get("local_ip")
-
-        if not hostname:
-            await websocket.close(code=1000, reason="No hostname provided")
+        try:
+            initial_msg = await websocket.receive_json()
+        except WebSocketDisconnect:
+            print(
+                f"! WebSocketDisconnect while waiting initial register from {client_ip}"
+            )
             return
+        except Exception as e:
+            print(f"! Exception while receiving initial register from {client_ip}: {e}")
+            try:
+                await websocket.close(code=1011, reason="receive error")
+            except Exception:
+                pass
+            return
+
+        # if authentication is enabled, validate token (backward-compatible)
+        try:
+            from config import AUTH_TOKEN, ENABLE_AUTH
+        except ImportError:
+            ENABLE_AUTH = False
+            AUTH_TOKEN = None
+
+        if ENABLE_AUTH and AUTH_TOKEN:
+            token = initial_msg.get("auth_token")
+            if token is None:
+                # Backward compatibility: accept if agent doesn't send token
+                print(
+                    f"! Warning: no auth token provided by {client_ip} (accepting for backward compatibility)"
+                )
+            elif token != AUTH_TOKEN:
+                # Explicit incorrect token => reject
+                print(
+                    f"✗ Invalid auth token from {client_ip}: received={token!r} expected=***"
+                )
+                await websocket.close(code=1008, reason="Invalid token")
+                return
+
+            # Accepter "register" ou hostname directement — normaliser hostname et agent_ip
+            if isinstance(initial_msg, dict):
+                if initial_msg.get("type") == "register":
+                    hostname = initial_msg.get("hostname")
+                    agent_ip = initial_msg.get("local_ip") or client_ip
+                else:
+                    hostname = initial_msg.get("hostname") or initial_msg.get("host")
+                    agent_ip = initial_msg.get("local_ip") or client_ip
+            else:
+                hostname = None
+                agent_ip = client_ip
+
+            if not hostname:
+                # no hostname — close politely
+                print(
+                    f"✗ No hostname provided by agent from {client_ip}; closing connection"
+                )
+                try:
+                    await websocket.close(code=1000, reason="No hostname provided")
+                except Exception:
+                    pass
+                return
 
         await agent_manager.connect(websocket, hostname)
 
         # Recevoir les données de l'agent continuellement
         while True:
-            data = await websocket.receive_json()
+            try:
+                data = await websocket.receive_json()
+            except WebSocketDisconnect:
+                print(
+                    f"! WebSocketDisconnect while receiving from {hostname} ({client_ip})"
+                )
+                break
+            except Exception as e:
+                print(
+                    f"! Exception while receiving JSON from {hostname} ({client_ip}): {e}"
+                )
+                break
 
             if data.get("type") == "metrics":
                 # Mettre à jour les données du computer
@@ -261,6 +319,7 @@ async def agent_endpoint(websocket: WebSocket, computers_data):
                                     "type": "alert",
                                     "hostname": hostname,
                                     "message": msg,
+                                    "severity": sev,
                                     "timestamp": datetime.now().isoformat(),
                                 }
                             )
@@ -276,19 +335,20 @@ async def agent_endpoint(websocket: WebSocket, computers_data):
                 data["offline_since"] = datetime.now().isoformat()
                 # alerte hors ligne
                 try:
-                    # persist and broadcast
-                    try:
-                        insert_notification(hostname, "Agent hors ligne", "error")
-                    except Exception:
-                        pass
-                    await client_manager.broadcast(
-                        {
-                            "type": "alert",
-                            "hostname": hostname,
-                            "message": "Agent hors ligne",
-                            "timestamp": datetime.now().isoformat(),
-                        }
-                    )
+                        # persist and broadcast
+                        try:
+                            insert_notification(hostname, "Agent hors ligne", "error")
+                        except Exception:
+                            pass
+                        await client_manager.broadcast(
+                            {
+                                "type": "alert",
+                                "hostname": hostname,
+                                "message": "Agent hors ligne",
+                                "severity": "error",
+                                "timestamp": datetime.now().isoformat(),
+                            }
+                        )
                     # also push an update so the offline flag propagates
                     await client_manager.broadcast(
                         {
@@ -308,19 +368,22 @@ async def agent_endpoint(websocket: WebSocket, computers_data):
             if data and not data.get("offline"):
                 data["offline"] = True
                 data["offline_since"] = datetime.now().isoformat()
-                try:
                     try:
-                        insert_notification(hostname, "Agent hors ligne (erreur)", "error")
-                    except Exception:
-                        pass
-                    await client_manager.broadcast(
-                        {
-                            "type": "alert",
-                            "hostname": hostname,
-                            "message": "Agent hors ligne (erreur)",
-                            "timestamp": datetime.now().isoformat(),
-                        }
-                    )
+                        try:
+                            insert_notification(
+                                hostname, "Agent hors ligne (erreur)", "error"
+                            )
+                        except Exception:
+                            pass
+                        await client_manager.broadcast(
+                            {
+                                "type": "alert",
+                                "hostname": hostname,
+                                "message": "Agent hors ligne (erreur)",
+                                "severity": "error",
+                                "timestamp": datetime.now().isoformat(),
+                            }
+                        )
                     await client_manager.broadcast(
                         {
                             "type": "agent_update",

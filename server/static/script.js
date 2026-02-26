@@ -34,6 +34,18 @@ function refreshIcons() {
 
 // ─── STATE ────────────────────────────────────────────────────────
 let computersData = {};
+
+// wrapper autour de fetch qui redirige vers la page de login si la
+// session n'est plus valide (retourne 401). Cela évite au client de rester
+// bloqué lorsque l'auth est activée.
+async function vigilFetch(url, opts = {}) {
+  const res = await fetch(url, opts);
+  if (res.status === 401) {
+    window.location = "/login";
+    throw new Error("not authenticated");
+  }
+  return res;
+}
 let currentHostname = null;
 let ws = null;
 let liveChart = null;
@@ -65,7 +77,10 @@ function showAlert(msg) {
   const container = document.getElementById("alerts");
   if (!container) return;
   const el = document.createElement("div");
-  el.className = "alert";
+  // use explicit severity if provided by server, fallback to info
+  const sev = msg.severity || "info";
+  const sevClass = `sev-${sev}`;
+  el.className = `alert ${sevClass}`;
   const when = msg.timestamp
     ? ` [${new Date(msg.timestamp).toLocaleTimeString()}]`
     : "";
@@ -78,7 +93,13 @@ function showAlert(msg) {
   setTimeout(() => el.remove(), 10000);
 
   // stocker pour consultation dans l'onglet Notifications
-  alertsHistory.push(msg);
+  // normalize stored object to always include severity
+  alertsHistory.push({
+    timestamp: msg.timestamp,
+    hostname: msg.hostname,
+    message: msg.message,
+    severity: msg.severity || "info",
+  });
   updateNotifBadge();
 
   // si nous sommes actuellement dans la vue notifications, redessiner sans
@@ -95,207 +116,6 @@ const historyCache = {};
 
 // abort controller pour annuler les requetes en attente lors de changements de vue
 let currentAbortController = null;
-
-// ─── liste notifications ─────────────────────────────────────────
-
-// settings view
-function renderSettingsView() {
-  // fetch current config
-  fetch("/api/settings")
-    .then((res) => res.json())
-    .then((cfg) => {
-      const fmtArr = (arr) => (Array.isArray(arr) ? arr.join(", ") : "");
-      let html = `<div class="settings-container">
-          <h2>Paramètres du serveur</h2>
-          <form id="settings-form">
-            <fieldset>
-              <legend>Serveur</legend>
-              <label>Hôte: <input type="text" name="SERVER_HOST" value="${cfg.SERVER_HOST || ""}"></label>
-              <label>Port: <input type="number" name="SERVER_PORT" value="${cfg.SERVER_PORT || ""}"></label>
-              <label>Timeout (s): <input type="number" name="TIMEOUT" value="${cfg.TIMEOUT}"></label>
-            </fieldset>
-            <fieldset>
-              <legend>Sécurité</legend>
-              <label>IPs agents (virgule séparées):<textarea name="ALLOWED_AGENT_IPS">${fmtArr(
-                cfg.ALLOWED_AGENT_IPS,
-              )}</textarea></label>
-              <label>IPs clients (virgule séparées):<textarea name="ALLOWED_CLIENT_IPS">${fmtArr(
-                cfg.ALLOWED_CLIENT_IPS,
-              )}</textarea></label>
-              <label>Authentification active: <input type="checkbox" name="ENABLE_AUTH" ${
-                cfg.ENABLE_AUTH ? "checked" : ""
-              }></label>
-              <label>Token secret: <input type="password" name="AUTH_TOKEN" placeholder="laisser vide pour conserver" value="" autocomplete="new-password" oncopy="return false" oncut="return false"></label>
-            </fieldset>
-            <fieldset>
-              <legend>Monitoring</legend>
-              <label>Limite processus: <input type="number" name="PROCESS_LIMIT" value="${cfg.PROCESS_LIMIT}"></label>
-              <label>Limite connexions réseau: <input type="number" name="NETWORK_CONN_LIMIT" value="${cfg.NETWORK_CONN_LIMIT}"></label>
-            </fieldset>
-            <fieldset>
-              <legend>Alarmes</legend>
-              <label>Seuil CPU (%): <input type="number" name="CPU_ALERT_THRESHOLD" value="${cfg.CPU_ALERT_THRESHOLD}"></label>
-              <label>Durée CPU (s): <input type="number" name="CPU_ALERT_DURATION" value="${cfg.CPU_ALERT_DURATION}"></label>
-              <label>Seuil RAM (%): <input type="number" name="RAM_ALERT_THRESHOLD" value="${cfg.RAM_ALERT_THRESHOLD}"></label>
-              <label>Seuil DISK (%): <input type="number" name="DISK_ALERT_THRESHOLD" value="${cfg.DISK_ALERT_THRESHOLD}"></label>
-            </fieldset>
-            <button type="submit">Enregistrer</button>
-          </form>
-        </div>`;
-      document.querySelector(".content").innerHTML = html;
-      refreshIcons();
-      // after insertion, add extra protections on the token field
-      const tokenInput = document.querySelector('input[name="AUTH_TOKEN"]');
-      if (tokenInput) {
-        tokenInput.addEventListener("copy", (e) => e.preventDefault());
-        tokenInput.addEventListener("cut", (e) => e.preventDefault());
-        tokenInput.addEventListener("contextmenu", (e) => e.preventDefault());
-      }
-
-      document.getElementById("settings-form").onsubmit = (e) => {
-        e.preventDefault();
-        const form = e.target;
-        const data = {};
-        new FormData(form).forEach((v, k) => {
-          // ne pas écraser le token si l'utilisateur n'en a pas fourni
-          if (k === "AUTH_TOKEN") {
-            if (v === "") return; // skip
-            data[k] = v;
-            return;
-          }
-          if (k === "ENABLE_AUTH") {
-            data[k] = form.querySelector('[name="ENABLE_AUTH"]').checked;
-          } else if (k === "ALLOWED_AGENT_IPS" || k === "ALLOWED_CLIENT_IPS") {
-            data[k] = v
-              .split(",")
-              .map((s) => s.trim())
-              .filter((s) => s);
-          } else if (!isNaN(v) && v !== "") {
-            data[k] = Number(v);
-          } else {
-            data[k] = v;
-          }
-        });
-        fetch("/api/settings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
-        }).then(() => {
-          showAlert({ message: "Paramètres sauvegardés" });
-        });
-      };
-    });
-  // });
-}
-
-// déduire une classe de sévérité à partir du message
-function notifSeverityClass(msg) {
-  const t = (msg || "").toLowerCase();
-  if (
-    t.includes("critique") ||
-    t.includes("disque plein") ||
-    t.includes("hors ligne")
-  ) {
-    return "sev-error";
-  }
-  if (t.includes("élevé") || t.includes("alerte") || t.includes("échec")) {
-    return "sev-warning";
-  }
-  return "sev-info";
-}
-
-function renderNotificationsView(hours = 12, markRead = false) {
-  // annuler toute requete en attente
-  if (currentAbortController) currentAbortController.abort();
-  currentAbortController = new AbortController();
-
-  // si on ouvre manuellement la vue, on considère que l'utilisateur a lu
-  if (markRead) {
-    lastSeenNotifTime = Date.now();
-  }
-  // mettre à jour le badge en fonction du timestamp le plus récent
-  updateNotifBadge();
-
-  // construire la vue en récupérant les notifications persistées
-  const rangeButtons = `<div class="history-controls"><button onclick="renderNotificationsView(1)">1h</button><button onclick="renderNotificationsView(4)">4h</button><button onclick="renderNotificationsView(7)">7h</button><button onclick="renderNotificationsView(24)">24h</button><button onclick="renderNotificationsView(48)">2j</button><button onclick="renderNotificationsView(72)">3j</button><button onclick="renderNotificationsView(0)">Toutes</button></div>`;
-
-  // try fetching from server; fallback to local alertsHistory if fetch fails
-  showLoader();
-  (async () => {
-    let list = [];
-    try {
-      const q = hours && hours > 0 ? `?hours=${hours}` : `?hours=0`;
-      const res = await fetch(`/api/notifications${q}`, {
-        signal: currentAbortController.signal,
-      });
-      const json = await res.json();
-      if (json && json.notifications) {
-        list = json.notifications.map((n) => ({
-          timestamp: n.timestamp,
-          hostname: n.hostname,
-          message: n.message,
-        }));
-      } else {
-        // fallback
-        list = alertsHistory;
-      }
-    } catch (e) {
-      if (e.name === "AbortError") return; // request was cancelled, don't render
-      list = alertsHistory;
-    }
-
-    // group by host then by date
-    const groups = {};
-    list.forEach((a) => {
-      const host = a.hostname || "général";
-      const date = a.timestamp
-        ? new Date(a.timestamp).toLocaleDateString()
-        : "";
-      if (!groups[host]) groups[host] = {};
-      if (!groups[host][date]) groups[host][date] = [];
-      groups[host][date].push(a);
-    });
-
-    let html = `<div class="notifications-container">${rangeButtons}`;
-
-    if (Object.keys(groups).length === 0) {
-      html += `<div class="notif-empty">Aucune notification sur la période sélectionnée.</div>`;
-    } else {
-      Object.keys(groups).forEach((host) => {
-        html += `<div class="notif-agent"><h3>${host}</h3>`;
-        Object.keys(groups[host]).forEach((date) => {
-          html += `<div class="notif-day"><strong>${date}</strong>`;
-          groups[host][date].forEach((a) => {
-            const time = a.timestamp
-              ? new Date(a.timestamp).toLocaleTimeString()
-              : "";
-            const icon = LUCIDE_OK
-              ? '<i data-lucide="alert-circle" class="notif-icon"></i>'
-              : "";
-            const sevClass = notifSeverityClass(a.message);
-            html += `
-          <div class="notif-item ${sevClass}">
-            ${icon}
-            <span class="notif-time">${time}</span>
-            <span class="notif-text">${a.message || ""}</span>
-          </div>`;
-          });
-          html += `</div>`; // close notif-day
-        });
-        html += `</div>`; // close notif-agent
-      });
-    }
-
-    html += `</div>`; // close notifications-container
-
-    document.querySelector(".content").innerHTML = html;
-    refreshIcons();
-    // lancer l'animation des barres après que les icônes soient rendues
-    animateAllAgentStats();
-    // ensure DOM is painted before hiding loader
-    requestAnimationFrame(() => hideLoader());
-  })();
-}
 
 // ─── INIT ─────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
@@ -338,7 +158,11 @@ document.addEventListener("DOMContentLoaded", () => {
         case "dashboard":
         case "agents":
           resetDashboardView();
-          renderComputers();
+          if (typeof renderDashboardView === "function") {
+            renderDashboardView();
+          } else {
+            renderComputers();
+          }
           break;
         case "activité":
         case "activite":
@@ -357,8 +181,12 @@ document.addEventListener("DOMContentLoaded", () => {
         case "sécurité":
         case "securite":
           resetDashboardView();
-          document.querySelector(".content").innerHTML =
-            "<p>Fonctionnalité de sécurité en cours de développement.</p>";
+          if (typeof renderSecurityView === "function") {
+            renderSecurityView();
+          } else {
+            document.querySelector(".content").innerHTML =
+              '<p class="security-placeholder">Fonctionnalité de sécurité en cours de développement.</p>';
+          }
           break;
         default:
           resetDashboardView();
@@ -373,150 +201,6 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ─── DÉMO ─────────────────────────────────────────────────────────
-
-// activité vue (bandeau latéral)
-let activityChart = null;
-
-async function renderActivityView() {
-  // annuler toute requete en attente
-  if (currentAbortController) currentAbortController.abort();
-  currentAbortController = new AbortController();
-
-  // construction de la vue
-  const hosts = Object.keys(computersData);
-  let html = `
-    <div class="activity-container">
-      <div class="activity-controls">
-        <label>Agent : <select id="activity-host"></select></label>
-        <div class="history-controls">
-          <button onclick="activityChangeRange(1)">1h</button>
-          <button onclick="activityChangeRange(4)">4h</button>
-          <button onclick="activityChangeRange(24)">24h</button>
-          <button onclick="activityChangeRange(168)">7j</button>
-        </div>
-      </div>
-      <div class="chart-wrap"><canvas id="activity-chart"></canvas></div>
-    </div>
-  `;
-  document.querySelector(".content").innerHTML = html;
-
-  const select = document.getElementById("activity-host");
-  hosts.forEach((h) => {
-    const opt = document.createElement("option");
-    opt.value = h;
-    opt.textContent = h;
-    select.appendChild(opt);
-  });
-  select.onchange = async () => {
-    const h = select.value;
-    showLoader();
-    await fetchHistory(h, currentActivityHours);
-    initActivityChart(h); // initialize chart after history fetched
-    requestAnimationFrame(() => hideLoader());
-  };
-
-  // si on sélectionne pour la première fois ou si la liste est vide
-  if (hosts.length) {
-    select.value = hosts[0];
-    showLoader();
-    await fetchHistory(hosts[0], currentActivityHours);
-    initActivityChart(hosts[0]);
-    requestAnimationFrame(() => hideLoader());
-  }
-}
-
-async function activityChangeRange(hours) {
-  currentActivityHours = hours;
-  const sel = document.getElementById("activity-host");
-  if (sel && sel.value) {
-    showLoader();
-    await fetchHistory(sel.value, hours);
-    // ensure chart updates after fetch completes
-    updateActivityChart(sel.value);
-    requestAnimationFrame(() => hideLoader());
-  }
-}
-
-// initialiser le graphique de la vue "activité"
-function initActivityChart(hostname) {
-  if (!CHARTJS_OK) return;
-  if (activityChart) {
-    activityChart.destroy();
-    activityChart = null;
-  }
-  const canvas = document.getElementById("activity-chart");
-  if (!canvas) return;
-  const h = historyCache[hostname] || {
-    cpu: [],
-    ram: [],
-    disk: [],
-    labels: [],
-  };
-
-  activityChart = new Chart(canvas, {
-    type: "line",
-    data: {
-      labels: [...h.labels],
-      datasets: [
-        {
-          label: "CPU",
-          data: [...h.cpu],
-          borderColor: "#ff6b6b",
-          backgroundColor: "#ff6b6b18",
-          borderWidth: 1.5,
-          pointRadius: 0,
-          tension: 0.4,
-          fill: true,
-        },
-        {
-          label: "RAM",
-          data: [...h.ram],
-          borderColor: "#4ecdc4",
-          backgroundColor: "#4ecdc418",
-          borderWidth: 1.5,
-          pointRadius: 0,
-          tension: 0.4,
-          fill: true,
-        },
-        {
-          label: "DISK",
-          data: [...h.disk],
-          borderColor: "#a78bfa",
-          backgroundColor: "#a78bfa18",
-          borderWidth: 1.5,
-          pointRadius: 0,
-          tension: 0.4,
-          fill: true,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      scales: {
-        x: { display: true },
-        y: { beginAtZero: true },
-      },
-    },
-  });
-}
-
-// mettre à jour le graphique de la vue "activité"
-function updateActivityChart(hostname) {
-  if (!activityChart) return;
-  const h = historyCache[hostname] || {
-    cpu: [],
-    ram: [],
-    disk: [],
-    labels: [],
-  };
-  activityChart.data.labels = [...h.labels];
-  activityChart.data.datasets[0].data = [...h.cpu];
-  activityChart.data.datasets[1].data = [...h.ram];
-  activityChart.data.datasets[2].data = [...h.disk];
-  activityChart.update("none");
-}
 
 // ─── DÉMO ─────────────────────────────────────────────────────────
 function injectDemoData() {
@@ -813,7 +497,7 @@ function hideLoader() {
 async function fetchHistory(hostname, hours = 24) {
   currentActivityHours = hours;
   try {
-    const res = await fetch(
+    const res = await vigilFetch(
       `/api/history/${encodeURIComponent(hostname)}?hours=${hours}`,
       { signal: currentAbortController.signal },
     );
@@ -838,319 +522,6 @@ async function fetchHistory(hostname, hours = 24) {
     return null;
   }
 }
-
-// helper used by history-range buttons so loader remains visible until chart redraw
-async function fetchHistoryAndRenderHistory(hostname, hours = 24) {
-  showLoader();
-  await fetchHistory(hostname, hours);
-  // ensure chart is initialized then updated
-  if (!historyChart) initHistoryChart(hostname);
-  updateHistoryChart(hostname);
-  // wait next paint to hide loader so chart is visible
-  requestAnimationFrame(() => hideLoader());
-}
-
-// ─── STATS TOPBAR ─────────────────────────────────────────────────
-function updateStats() {
-  const total = Object.keys(computersData).length;
-  let offline = 0;
-  Object.values(computersData).forEach((d) => {
-    if (d.offline) offline++;
-  });
-  const online = total - offline;
-
-  document.getElementById("total-pcs").textContent = total;
-  document.getElementById("online-pcs").textContent = online;
-  document.getElementById("offline-pcs").textContent = offline;
-  document.getElementById("total-connections").textContent = total;
-}
-
-// ─── GRILLE AGENTS ────────────────────────────────────────────────
-function renderComputers() {
-  const grid = document.getElementById("computers-grid");
-  const empty = document.getElementById("no-computers");
-  const keys = Object.keys(computersData);
-
-  if (!keys.length) {
-    grid.innerHTML = "";
-    empty.style.display = "flex";
-    refreshIcons();
-    return;
-  }
-  empty.style.display = "none";
-
-  keys.forEach((hostname) => {
-    let card = document.getElementById("card-" + hostname);
-    const data = computersData[hostname];
-    if (!card) {
-      card = document.createElement("div");
-      card.className = "computer-card";
-      card.id = "card-" + hostname;
-      card.onclick = () => openModal(hostname);
-      grid.appendChild(card);
-    }
-    card.innerHTML = buildCardHTML(hostname, data);
-    // ajouter une classe visuelle pour les agents hors ligne
-    card.classList.toggle("offline", !!data.offline);
-  });
-
-  // Supprimer les cartes d'agents déconnectés
-  grid.querySelectorAll(".computer-card").forEach((c) => {
-    if (!computersData[c.id.replace("card-", "")]) c.remove();
-  });
-
-  refreshIcons();
-  // lancer l'animation des barres après rendu pour garantir transition visible
-  setTimeout(animateAllAgentStats, 60);
-}
-
-function buildCardHTML(hostname, data) {
-  // compute some quick values
-  const cpu = (data.cpu_percent || 0).toFixed(1);
-  const ram = (data.memory?.percent || 0).toFixed(1);
-  const disk = (data.disk?.percent || 0).toFixed(1);
-
-  // préférer l'adresse remontée par la configuration du serveur (agent_ip)
-  let ip = data.agent_ip || "N/A";
-  if (data.interfaces) {
-    for (const iface of Object.values(data.interfaces)) {
-      for (const addr of iface.addresses || []) {
-        if (addr.type === "IPv4" && addr.address !== "127.0.0.1") {
-          ip = ip === "N/A" ? addr.address : ip;
-          break;
-        }
-      }
-      if (ip !== "N/A" && ip !== data.agent_ip) break;
-    }
-  }
-
-  const statusText = data.offline ? "HORS LIGNE" : "EN LIGNE";
-  const statusClass = data.offline ? "offline" : "online";
-  const systemName = (data.system || "").split(" ")[0] || "N/A";
-
-  return `
-    <div class="agent-icon-wrapper">
-      <img src="/static/images/host-online.svg" class="agent-icon" alt="host">
-    </div>
-    <div class="agent-details">
-      <div class="agent-host">${hostname}</div>
-      <div class="agent-ip"><i data-lucide="globe"></i> ${ip}</div>
-      <div class="agent-system"><i data-lucide="layers"></i> ${systemName}</div>
-      <div class="agent-status ${statusClass}">${statusText}</div>
-      ${
-        data.offline && data.offline_since
-          ? `<div class="agent-offline-since">⏲ ${new Date(data.offline_since).toLocaleString()}</div>`
-          : ""
-      }
-      <div class="agent-stats">
-        <div class="stat-row">
-          <div class="stat-label">CPU</div>
-          <div class="bar-track"><div class="bar-fill bar-cpu" data-percent="${cpu}"></div></div>
-          <div class="stat-value">${cpu}%</div>
-        </div>
-        <div class="stat-row">
-          <div class="stat-label">RAM</div>
-          <div class="bar-track"><div class="bar-fill bar-ram" data-percent="${ram}"></div></div>
-          <div class="stat-value">${ram}%</div>
-        </div>
-        <div class="stat-row">
-          <div class="stat-label">DD</div>
-          <div class="bar-track"><div class="bar-fill bar-disk" data-percent="${disk}"></div></div>
-          <div class="stat-value">${disk}%</div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-// anime les barres de tous les agents (après rendu)
-function animateAllAgentStats() {
-  document.querySelectorAll(".computer-card").forEach((card, cardIndex) => {
-    const fills = card.querySelectorAll(".agent-stats .bar-fill");
-    fills.forEach((f, i) => {
-      const p = f.dataset.percent || "0";
-      // forcer largeur initiale à 0 pour permettre transition
-      f.style.width = "0%";
-      setTimeout(
-        () => {
-          f.style.width = p + "%";
-        },
-        80 + cardIndex * 40 + i * 120,
-      );
-    });
-  });
-}
-
-// ─── MODAL ────────────────────────────────────────────────────────
-function openModal(hostname) {
-  currentHostname = hostname;
-  const data = computersData[hostname];
-  document.getElementById("modal-title").textContent = hostname;
-  document.getElementById("modal-ip").textContent = data.ip || "";
-  const statusEl = document.getElementById("modal-status");
-  if (statusEl) {
-    statusEl.textContent = data.offline ? "HORS LIGNE" : "EN LIGNE";
-    statusEl.className = "modal-status" + (data.offline ? " offline" : "");
-  }
-  document.getElementById("modal").classList.add("open");
-
-  // l'historique n'est pas téléchargé automatiquement pour alléger l'ouverture
-  switchTab("overview");
-}
-
-function closeModal() {
-  document.getElementById("modal").classList.remove("open");
-  if (liveChart) {
-    liveChart.destroy();
-    liveChart = null;
-  }
-  currentHostname = null;
-}
-
-// ─── TABS ─────────────────────────────────────────────────────────
-function switchTab(name) {
-  document
-    .querySelectorAll(".tab")
-    .forEach((t) => t.classList.remove("active"));
-  document
-    .querySelector(`[onclick="switchTab('${name}')"]`)
-    .classList.add("active");
-  document
-    .querySelectorAll(".tab-content")
-    .forEach((c) => c.classList.remove("active"));
-  document.getElementById("tab-" + name).classList.add("active");
-
-  if (liveChart) {
-    liveChart.destroy();
-    liveChart = null;
-  }
-
-  const data = computersData[currentHostname];
-  if (!data) return;
-
-  switch (name) {
-    case "overview":
-      renderOverview(currentHostname);
-      break;
-    case "processes":
-      renderProcesses(data);
-      break;
-    case "network":
-      renderNetwork(data);
-      break;
-    case "history":
-      renderHistory(currentHostname);
-      break;
-    case "protocols":
-      renderProtocols(data);
-      break;
-  }
-  refreshIcons();
-}
-
-// ─── HISTORIQUE ───────────────────────────────────────────────────
-let historyChart = null;
-function renderHistory(hostname) {
-  // le graphique sera initialisé par initHistoryChart
-  document.getElementById("tab-history").innerHTML = `
-    <div class="history-container">
-      <div class="history-controls">
-        <button onclick="fetchHistoryAndRenderHistory('${hostname}',1)">1h</button>
-        <button onclick="fetchHistoryAndRenderHistory('${hostname}',4)">4h</button>
-        <button onclick="fetchHistoryAndRenderHistory('${hostname}',24)">24h</button>
-        <button onclick="fetchHistoryAndRenderHistory('${hostname}',168)">7j</button>
-      </div>
-      <div class="chart-wrap"><canvas id="history-chart"></canvas></div>
-    </div>
-  `;
-  showLoader();
-  // ensure loader is shown while initializing; hide after raf
-  requestAnimationFrame(() => {
-    initHistoryChart(hostname);
-    requestAnimationFrame(() => hideLoader());
-  });
-}
-
-function initHistoryChart(hostname) {
-  if (!CHARTJS_OK) return;
-  if (historyChart) {
-    historyChart.destroy();
-    historyChart = null;
-  }
-  const canvas = document.getElementById("history-chart");
-  if (!canvas) return;
-  const h = historyCache[hostname] || {
-    cpu: [],
-    ram: [],
-    disk: [],
-    labels: [],
-  };
-
-  historyChart = new Chart(canvas, {
-    type: "line",
-    data: {
-      labels: [...h.labels],
-      datasets: [
-        {
-          label: "CPU",
-          data: [...h.cpu],
-          borderColor: "#ff6b6b",
-          backgroundColor: "#ff6b6b18",
-          borderWidth: 1.5,
-          pointRadius: 0,
-          tension: 0.4,
-          fill: true,
-        },
-        {
-          label: "RAM",
-          data: [...h.ram],
-          borderColor: "#4ecdc4",
-          backgroundColor: "#4ecdc418",
-          borderWidth: 1.5,
-          pointRadius: 0,
-          tension: 0.4,
-          fill: true,
-        },
-        {
-          label: "DISK",
-          data: [...h.disk],
-          borderColor: "#a78bfa",
-          backgroundColor: "#a78bfa18",
-          borderWidth: 1.5,
-          pointRadius: 0,
-          tension: 0.4,
-          fill: true,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      scales: {
-        x: { display: true },
-        y: { beginAtZero: true },
-      },
-    },
-  });
-}
-
-function updateHistoryChart(hostname) {
-  if (!historyChart) return;
-  const h = historyCache[hostname] || {
-    cpu: [],
-    ram: [],
-    disk: [],
-    labels: [],
-  };
-  historyChart.data.labels = [...h.labels];
-  historyChart.data.datasets[0].data = [...h.cpu];
-  historyChart.data.datasets[1].data = [...h.ram];
-  historyChart.data.datasets[2].data = [...h.disk];
-  historyChart.update("none");
-}
-
-// ─── HISTORIQUE ──────────────────────────────────────────────────
 
 // ─── OVERVIEW ─────────────────────────────────────────────────────
 function renderOverview(hostname) {

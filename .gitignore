@@ -1,6 +1,9 @@
 .venv
-.server/config.py
-.agent/config.py
+server/config.yaml
+server/config.py
+agent/config.yaml
+agent/config.py
+server/users.yaml
 uv.lock
 _pycache__/
 *.pyc

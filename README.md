@@ -38,6 +38,10 @@ Un système de monitoring puissant et simple pour surveiller plusieurs ordinateu
 - 🎭 **Icônes distinctives** par PC avec badges de statut (hors ligne/ en ligne)
 - 🕒 **Onglet Historique** pour visualiser les 24 h+
 - ⚡ **Animations fluides** et transitions
+- 🛠 **Réinitialisation de la configuration** : l'onglet Paramètres dispose d'un bouton
+  « Réinitialiser » qui restaure le fichier `config.yaml` à sa copie de sauvegarde
+  (backup créé automatiquement avant chaque modification). Cela permet d'annuler
+  la dernière mise à jour si besoin.
 
 ---
 
@@ -103,13 +107,13 @@ install.bat
 3. **Configurer**
 
    ```bash
-   cp config.py server/config.py  # Pour le serveur
-   cp config.py agent/config.py   # Pour les agents
+   cp config.yaml server/config.yaml  # Pour le serveur (format YAML)
+   cp config.yaml agent/config.yaml   # Pour les agents (format YAML)
    ```
 
 4. **Modifier la configuration**
-   - Éditez `agent/config.py`
-   - Changez `SERVER_IP = "x.x.x.x"` avec l'IP de votre serveur
+   - Éditez `agent/config.yaml` ou `server/config.yaml` selon le rôle
+   - Changez `SERVER_IP: "x.x.x.x"` (agent) ou `SERVER_HOST`/`SERVER_PORT` (serveur)
 
 5. **Lancer**
 
@@ -144,7 +148,11 @@ install.bat
 
 ## 🔧 Configuration
 
-### Serveur — `server/config.py`
+### Serveur — `server/config.yaml`
+
+_Si `ENABLE_AUTH` est activé, le navigateur redirigera vers une page de
+connexion. Lors du premier accès un compte administrateur est créé
+automatiquement._
 
 | Paramètre              | Défaut      | Description                                                              |
 | ---------------------- | ----------- | ------------------------------------------------------------------------ |
@@ -184,15 +192,13 @@ _Lorsque le serveur ne reçoit plus de métriques pendant la durée de `TIMEOUT`
 | `PROCESS_LIMIT` | `100` | Nombre max de processus remontés |
 | `NETWORK_CONN_LIMIT` | `100` | Nombre max de connexions réseau remontées |
 
-### Agent — `agent/config.py`
+### Agent — `agent/config.yaml`
 
 | Paramètre            | Défaut              | Description                                 |
 | -------------------- | ------------------- | ------------------------------------------- |
 | `SERVER_IP`          | `"192.168.188.120"` | IP du serveur central à atteindre           |
 | `SERVER_PORT`        | `5000`              | Port du serveur central                     |
 | `UPDATE_INTERVAL`    | `1`                 | Intervalle d'envoi des données (secondes)   |
-| `ENABLE_AUTH`        | `False`             | Activer l'authentification par token        |
-| `AUTH_TOKEN`         | `"..."`             | Token secret si `ENABLE_AUTH = True`        |
 | `TIMEOUT`            | `10`                | Timeout de connexion vers le serveur        |
 | `PROCESS_LIMIT`      | `100`               | Nombre max de processus à collecter         |
 | `NETWORK_CONN_LIMIT` | `100`               | Nombre max de connexions réseau à collecter |
@@ -241,7 +247,7 @@ Sur chaque PC à surveiller :
 
 ### Changer l'intervalle de mise à jour
 
-Dans `agent/config.py` :
+Dans `agent/config.yaml` :
 
 ```python
 UPDATE_INTERVAL = T  # Mise à jour toutes les T secondes

@@ -27,14 +27,14 @@ uv pip install requirements.txt
 
 ## Configuration
 
-### Configuration Serveur (`server/config.py`)
+### Configuration Serveur (`server/config.yaml`)
 
 - `SERVER_HOST` : Interface d'écoute (0.0.0.0 pour toutes)
 - `SERVER_PORT` : Port du serveur web
 - `ALLOWED_AGENT_IPS` : Liste des IPs autorisées pour les agents (vide = toutes)
 - `ALLOWED_CLIENT_IPS` : Liste des IPs autorisées pour les clients web (vide = toutes)
 
-### Configuration Agent (`agent/config.py`)
+### Configuration Agent (`agent/config.yaml`)
 
 - `SERVER_IP` : Adresse IP du serveur central
 - `SERVER_PORT` : Port du serveur
@@ -58,7 +58,7 @@ cd agent
 python agent.py
 ```
 
-**Note** : L'admin système peut modifier directement les fichiers `config.py` pour configurer l'application selon ses besoins.
+**Note** : L'admin système peut modifier directement les fichiers `config.yaml` pour configurer l'application selon ses besoins.
 
 ## Ports utilisés
 

@@ -18,7 +18,9 @@ _conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=10.0)
 _conn.row_factory = sqlite3.Row
 
 # Optimisation SQLite pour meilleures performances
-_conn.execute("PRAGMA journal_mode=WAL")  # Write-Ahead Logging pour meilleure concurrence
+_conn.execute(
+    "PRAGMA journal_mode=WAL"
+)  # Write-Ahead Logging pour meilleure concurrence
 _conn.execute("PRAGMA synchronous=NORMAL")  # moins strict (à utiliser avec WAL)
 _conn.execute("PRAGMA cache_size=10000")  # augmenter cache
 _conn.execute("PRAGMA temp_store=MEMORY")  # temp tables en mémoire
@@ -113,7 +115,7 @@ def prune_older_than(days: int = 30):
 
 
 def insert_notification(hostname: str, message: str, severity: str = "info"):
-    """Insère une notification/alerte dans la table `notifications`. """
+    """Insère une notification/alerte dans la table `notifications`."""
     with _lock:
         c = _conn.cursor()
         c.execute(
@@ -123,39 +125,76 @@ def insert_notification(hostname: str, message: str, severity: str = "info"):
         _conn.commit()
 
 
-def query_notifications(hostname: str = None, since_iso: str = None, limit: int = 500):
-    """Récupère les notifications.
+def count_notifications(
+    hostname: str = None,
+    since_iso: str = None,
+    severity: str = None,
+):
+    """Compte le total de notifications avec filtres appliqués (sans limite/offset)."""
+    with _lock:
+        c = _conn.cursor()
+        where = []
+        params = []
+        if hostname:
+            where.append("hostname = ?")
+            params.append(hostname)
+        if since_iso:
+            where.append("ts >= ?")
+            params.append(since_iso)
+        if severity:
+            where.append("severity = ?")
+            params.append(severity)
+
+        sql = "SELECT COUNT(*) as cnt FROM notifications"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        c.execute(sql, tuple(params))
+        row = c.fetchone()
+    return row["cnt"] if row else 0
+
+
+def query_notifications(
+    hostname: str = None,
+    since_iso: str = None,
+    limit: int = 500,
+    severity: str = None,
+    offset: int = 0,
+):
+    """Récupère les notifications avec options de filtrage et pagination.
 
     - `hostname` facultatif pour filtrer par agent
-    - `since_iso` facultatif (ISO timestamp) pour ne récupérer que les notifications
-      postérieures à cette date.
-    - `limit` pour limiter le nombre de résultats (défaut 500).
+    - `since_iso` facultatif (ISO timestamp) pour ne récupérer que les notifications postérieures à cette date.
+    - `severity` facultatif pour filtrer par sévérité ('error'|'warning'|'info').
+    - `limit` nombre d'éléments à retourner
+    - `offset` décalage (pour pagination)
 
     Retourne une liste d'objets {timestamp, hostname, message, severity} triés par ts DESC (plus récentes en premier).
     """
     with _lock:
         c = _conn.cursor()
-        if hostname and since_iso:
-            c.execute(
-                "SELECT ts, hostname, message, severity FROM notifications WHERE hostname = ? AND ts >= ? ORDER BY ts DESC LIMIT ?",
-                (hostname, since_iso, limit),
-            )
-        elif hostname:
-            c.execute(
-                "SELECT ts, hostname, message, severity FROM notifications WHERE hostname = ? ORDER BY ts DESC LIMIT ?",
-                (hostname, limit),
-            )
-        elif since_iso:
-            c.execute(
-                "SELECT ts, hostname, message, severity FROM notifications WHERE ts >= ? ORDER BY ts DESC LIMIT ?",
-                (since_iso, limit),
-            )
-        else:
-            c.execute(
-                "SELECT ts, hostname, message, severity FROM notifications ORDER BY ts DESC LIMIT ?",
-                (limit,),
-            )
+        where = []
+        params = []
+        if hostname:
+            where.append("hostname = ?")
+            params.append(hostname)
+        if since_iso:
+            where.append("ts >= ?")
+            params.append(since_iso)
+        if severity:
+            where.append("severity = ?")
+            params.append(severity)
+
+        sql = "SELECT ts, hostname, message, severity FROM notifications"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY ts DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        print(
+            f"🔍 query_notifications: limit={limit}, offset={offset}, SQL={sql}, params={params}"
+        )
+        c.execute(sql, tuple(params))
         rows = c.fetchall()
+        print(f"📊 query_notifications returned {len(rows)} rows")
 
     result = []
     for row in rows:

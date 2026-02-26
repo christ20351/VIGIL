@@ -13,7 +13,41 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import websockets
+
+# Optional auth values may be present in the shared config module
 from config import SERVER_IP, SERVER_PORT, UPDATE_INTERVAL
+
+try:
+    from config import AUTH_TOKEN, ENABLE_AUTH
+except Exception:
+    ENABLE_AUTH = False
+    AUTH_TOKEN = None
+# Fallback: si l'agent est lancé depuis un répertoire qui empêche
+# l'import du module `config`, tenter de lire directement le YAML
+# de configuration du serveur (chemin relatif depuis le dossier agent/).
+if not AUTH_TOKEN:
+    try:
+        import os
+
+        import yaml
+
+        cfg_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "server", "config.yaml")
+        )
+        if os.path.exists(cfg_path):
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            # respecter les clés si présentes
+            if "AUTH_TOKEN" in data:
+                AUTH_TOKEN = data.get("AUTH_TOKEN")
+            if "ENABLE_AUTH" in data:
+                ENABLE_AUTH = bool(data.get("ENABLE_AUTH"))
+            print(
+                f"(agent) loaded fallback config from {cfg_path}: ENABLE_AUTH={ENABLE_AUTH}, AUTH_TOKEN={'***' if AUTH_TOKEN else None}"
+            )
+    except Exception:
+        # fail silently — on conservera les valeurs précédentes
+        pass
 from system_info import get_system_info
 
 # ================================
@@ -71,12 +105,23 @@ async def send_data_websocket():
                 print(f"✓ Connecté au serveur WebSocket: {WS_URL}")
                 reconnect_delay = 1  # Reset delay on successful connection
 
-                # Envoyer le hostname en premier
-                await websocket.send(
-                    json.dumps(
-                        {"type": "register", "hostname": HOSTNAME, "local_ip": LOCAL_IP}
-                    )
-                )
+                # Envoyer le hostname en premier; inclure le token si l'auth est activée
+                register_payload = {
+                    "type": "register",
+                    "hostname": HOSTNAME,
+                    "local_ip": LOCAL_IP,
+                }
+                if ENABLE_AUTH and AUTH_TOKEN:
+                    register_payload["auth_token"] = AUTH_TOKEN
+                # debug: show register payload (avoids printing secret directly)
+                try:
+                    dbg = register_payload.copy()
+                    if "auth_token" in dbg:
+                        dbg["auth_token"] = "***"
+                except Exception:
+                    dbg = register_payload
+                print(f"-> register payload: {dbg}")
+                await websocket.send(json.dumps(register_payload))
 
                 # Envoyer les données continuellement
                 while True:

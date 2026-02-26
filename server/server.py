@@ -10,13 +10,14 @@ import uvicorn
 from cleanup import clean_old_data
 from config import SERVER_HOST, SERVER_PORT
 from dashboard import create_terminal_dashboard
+from db.storage import init_db, prune_older_than
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from rich.console import Console
 from routes import setup_routes
 from websocket_handler import setup_websocket
-from db.storage import init_db, prune_older_than
+
 
 def print_banner():
     print("+-----------+")
@@ -26,6 +27,36 @@ def print_banner():
 
 
 app = FastAPI(name="PC Monitor Server")
+
+import auth
+import config
+
+# middleware pour rediriger/forcer l'authentification lorsque c'est activé
+from fastapi import Request
+from fastapi.responses import JSONResponse, RedirectResponse
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    if config.ENABLE_AUTH:
+        path = request.url.path
+        # autoriser les ressources statiques et routes publiques
+        if (
+            path.startswith("/static")
+            or path in ("/login", "/logout", "/health", "/update")
+            or path.startswith("/ws")
+        ):
+            return await call_next(request)
+        # vérifier session
+        cookie = request.cookies.get("session")
+        user = auth.verify_session(cookie) if cookie else None
+        if not user:
+            if path.startswith("/api"):
+                return JSONResponse({"error": "not authenticated"}, status_code=401)
+            else:
+                return RedirectResponse("/login")
+    return await call_next(request)
+
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -95,7 +126,12 @@ if __name__ == "__main__":
         print()
 
         try:
-            uvicorn.run(app, host=SERVER_HOST, port=SERVER_PORT)
+            # use app directly (no import string needed for simple runs)
+            # reload=True causes uvicorn to require an import string
+            # which is tricky when running via `python server.py`.  Instead
+            # start with `uvicorn server.server:app --reload` if you need
+            # automatic reloading during development.
+            uvicorn.run(app, host=SERVER_HOST, port=SERVER_PORT, reload=False)
         except KeyboardInterrupt:
             print("\n\n🛑 Arrêt du serveur...")
             sys.exit(0)

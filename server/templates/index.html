@@ -26,7 +26,18 @@
     <script src="/static/vendor/chart.umd.min.js"></script>
     <script src="/static/vendor/lucide.js"></script>
     <script src="/static/script.js"></script>
+    <script src="/static/sidebar/dashboard/dashboard.js"></script>
+    <script src="/static/sidebar/agents/agents.js"></script>
+    <script src="/static/sidebar/activity/activity.js"></script>
+    <script src="/static/sidebar/security/security.js"></script>
+    <script src="/static/sidebar/settings/settings.js"></script>
+
     <link rel="stylesheet" href="/static/style.css" />
+    <link rel="stylesheet" href="/static/sidebar/dashboard/dashboard.css" />
+    <link rel="stylesheet" href="/static/sidebar/agents/agents.css" />
+    <link rel="stylesheet" href="/static/sidebar/activity/activity.css" />
+    <link rel="stylesheet" href="/static/sidebar/security/security.css" />
+    <link rel="stylesheet" href="/static/sidebar/settings/settings.css" />
   </head>
   <body>
     <div class="app">
@@ -63,6 +74,15 @@
         <!-- TOPBAR -->
         <div class="topbar">
           <div class="topbar-title">INFRASTRUCTURE / AGENTS EN DIRECT</div>
+          {% if config.ENABLE_AUTH %}
+          <div class="topbar-user">
+            <a
+              href="/logout"
+              style="color: var(--accent); text-decoration: none"
+              >Déconnexion</a
+            >
+          </div>
+          {% endif %}
           <div class="topbar-stats">
             <div id="alerts" class="alerts-container"></div>
             <div class="kpi">
