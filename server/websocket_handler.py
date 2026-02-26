@@ -50,10 +50,9 @@ class ClientConnectionManager:
         for connection in self.active_connections:
             try:
                 await connection.send_json(message)
-            except Exception as e:
+            except Exception:
                 disconnected.append(connection)
 
-        # Nettoyer les connexions mortes
         for conn in disconnected:
             self.disconnect(conn)
 
@@ -79,11 +78,9 @@ class AgentConnectionManager:
             )
 
     async def get_agent_socket(self, hostname: str):
-        """Récupère la socket WebSocket d'un agent"""
         return self.agent_connections.get(hostname)
 
     def get_all_agents(self):
-        """Retourne la liste de tous les agents connectés"""
         return list(self.agent_connections.keys())
 
 
@@ -95,15 +92,8 @@ agent_manager = AgentConnectionManager()
 _threshold_state = {}
 
 
-# ----- helpers ----------------------------------------------------------
 def _check_thresholds(hostname: str, data: dict):
-    """Contrôle les valeurs contre des seuils et retourne les messages d'alerte.
-
-    Le code appelant s'occupera du broadcast pour rester dans le contexte
-    asynchrone.
-
-    Les règles par défaut peuvent être configurées dans `server/config.yaml` (via le module config).
-    """
+    """Contrôle les valeurs contre des seuils et retourne les messages d'alerte."""
     import time
 
     now = time.time()
@@ -147,7 +137,6 @@ async def web_client_endpoint(websocket: WebSocket, computers_data):
 
     await client_manager.connect(websocket)
     try:
-        # Envoyer les données actuelles immédiatement à la connexion
         await websocket.send_json(
             {
                 "type": "update",
@@ -157,7 +146,6 @@ async def web_client_endpoint(websocket: WebSocket, computers_data):
         )
 
         while True:
-            # Envoyer les données mises à jour toutes les secondes
             await websocket.send_json(
                 {
                     "type": "update",
@@ -165,11 +153,10 @@ async def web_client_endpoint(websocket: WebSocket, computers_data):
                     "timestamp": datetime.now().isoformat(),
                 }
             )
-            # Attendre 1 seconde pour des mises à jour plus fréquentes
             await asyncio.sleep(1)
     except WebSocketDisconnect:
         client_manager.disconnect(websocket)
-    except Exception as e:
+    except Exception:
         client_manager.disconnect(websocket)
 
 
@@ -181,12 +168,13 @@ async def agent_endpoint(websocket: WebSocket, computers_data):
         return
 
     hostname = None
+    agent_ip = client_ip
+
     try:
-        # IMPORTANT: Accepter d'abord, puis lire les messages
         await websocket.accept()
         print(f"-> agent connection accepted from {client_ip}")
 
-        # Attendre le premier message contenant le hostname (register)
+        # Lire le message d'enregistrement initial
         try:
             initial_msg = await websocket.receive_json()
         except WebSocketDisconnect:
@@ -202,7 +190,7 @@ async def agent_endpoint(websocket: WebSocket, computers_data):
                 pass
             return
 
-        # if authentication is enabled, validate token (backward-compatible)
+        # Authentification
         try:
             from config import AUTH_TOKEN, ENABLE_AUTH
         except ImportError:
@@ -212,44 +200,38 @@ async def agent_endpoint(websocket: WebSocket, computers_data):
         if ENABLE_AUTH and AUTH_TOKEN:
             token = initial_msg.get("auth_token")
             if token is None:
-                # Backward compatibility: accept if agent doesn't send token
                 print(
                     f"! Warning: no auth token provided by {client_ip} (accepting for backward compatibility)"
                 )
             elif token != AUTH_TOKEN:
-                # Explicit incorrect token => reject
                 print(
                     f"✗ Invalid auth token from {client_ip}: received={token!r} expected=***"
                 )
                 await websocket.close(code=1008, reason="Invalid token")
                 return
 
-            # Accepter "register" ou hostname directement — normaliser hostname et agent_ip
-            if isinstance(initial_msg, dict):
-                if initial_msg.get("type") == "register":
-                    hostname = initial_msg.get("hostname")
-                    agent_ip = initial_msg.get("local_ip") or client_ip
-                else:
-                    hostname = initial_msg.get("hostname") or initial_msg.get("host")
-                    agent_ip = initial_msg.get("local_ip") or client_ip
+        # Extraire hostname et IP depuis le message register
+        if isinstance(initial_msg, dict):
+            if initial_msg.get("type") == "register":
+                hostname = initial_msg.get("hostname")
+                agent_ip = initial_msg.get("local_ip") or client_ip
             else:
-                hostname = None
-                agent_ip = client_ip
+                hostname = initial_msg.get("hostname") or initial_msg.get("host")
+                agent_ip = initial_msg.get("local_ip") or client_ip
 
-            if not hostname:
-                # no hostname — close politely
-                print(
-                    f"✗ No hostname provided by agent from {client_ip}; closing connection"
-                )
-                try:
-                    await websocket.close(code=1000, reason="No hostname provided")
-                except Exception:
-                    pass
-                return
+        if not hostname:
+            print(
+                f"✗ No hostname provided by agent from {client_ip}; closing connection"
+            )
+            try:
+                await websocket.close(code=1000, reason="No hostname provided")
+            except Exception:
+                pass
+            return
 
         await agent_manager.connect(websocket, hostname)
 
-        # Recevoir les données de l'agent continuellement
+        # Boucle de réception des métriques
         while True:
             try:
                 data = await websocket.receive_json()
@@ -265,31 +247,20 @@ async def agent_endpoint(websocket: WebSocket, computers_data):
                 break
 
             if data.get("type") == "metrics":
-                # Mettre à jour les données du computer
                 agent_data = data.get("data", {})
-                agent_data["agent_ip"] = agent_ip  # Ajouter l'IP de l'agent
-                # champs de suivi
+                agent_data["agent_ip"] = agent_ip
                 agent_data["last_seen"] = datetime.now().isoformat()
                 agent_data["offline"] = False
-                # supprimer l'éventuelle date de mise hors ligne
                 agent_data.pop("offline_since", None)
 
-                # enregistrer dans la base historique
+                # Enregistrer en base
                 try:
-                    from db.storage import insert_metric
-
                     insert_metric(hostname, agent_data)
                 except Exception:
                     pass
 
                 computers_data[hostname] = agent_data
-                # stocker en base
-                try:
-                    insert_metric(hostname, agent_data)
-                except Exception:
-                    pass
 
-                # journaliser
                 print(
                     f"📊 {hostname}: "
                     f"CPU={agent_data.get('cpu_percent', 0):.1f}% | "
@@ -297,93 +268,57 @@ async def agent_endpoint(websocket: WebSocket, computers_data):
                     f"TCP={agent_data.get('protocols', {}).get('tcp', {}).get('established', 0)}"
                 )
 
-                # vérifier les seuils et envoyer des alertes éventuelles
+                # Vérifier les seuils et broadcaster les alertes
                 alerts = _check_thresholds(hostname, agent_data)
-                if alerts:
-                    # broadcast each alert (nous sommes déjà dans un contexte async)
-                    for msg in alerts:
-                        # persist the alert
-                        try:
-                            sev = "info"
-                            t = (msg or "").lower()
-                            if "hors ligne" in t or "disque" in t or "critique" in t:
-                                sev = "error"
-                            elif "élevé" in t or "alerte" in t or "échec" in t:
-                                sev = "warning"
-                            insert_notification(hostname, msg, sev)
-                        except Exception:
-                            pass
-                        try:
-                            await client_manager.broadcast(
-                                {
-                                    "type": "alert",
-                                    "hostname": hostname,
-                                    "message": msg,
-                                    "severity": sev,
-                                    "timestamp": datetime.now().isoformat(),
-                                }
-                            )
-                        except Exception as e:
-                            print(f"⚠️  Échec broadcast alertes: {e}")
+                for msg in alerts:
+                    sev = "info"
+                    t = (msg or "").lower()
+                    if "hors ligne" in t or "disque" in t or "critique" in t:
+                        sev = "error"
+                    elif "élevé" in t or "alerte" in t or "échec" in t:
+                        sev = "warning"
+                    try:
+                        insert_notification(hostname, msg, sev)
+                    except Exception:
+                        pass
+                    try:
+                        await client_manager.broadcast(
+                            {
+                                "type": "alert",
+                                "hostname": hostname,
+                                "message": msg,
+                                "severity": sev,
+                                "timestamp": datetime.now().isoformat(),
+                            }
+                        )
+                    except Exception as e:
+                        print(f"⚠️  Échec broadcast alertes: {e}")
 
     except WebSocketDisconnect:
-        if hostname:
-            # marquer hors ligne immédiatement
-            data = computers_data.get(hostname, {})
-            if data and not data.get("offline"):
-                data["offline"] = True
-                data["offline_since"] = datetime.now().isoformat()
-                # alerte hors ligne
-                try:
-                        # persist and broadcast
-                        try:
-                            insert_notification(hostname, "Agent hors ligne", "error")
-                        except Exception:
-                            pass
-                        await client_manager.broadcast(
-                            {
-                                "type": "alert",
-                                "hostname": hostname,
-                                "message": "Agent hors ligne",
-                                "severity": "error",
-                                "timestamp": datetime.now().isoformat(),
-                            }
-                        )
-                    # also push an update so the offline flag propagates
-                    await client_manager.broadcast(
-                        {
-                            "type": "agent_update",
-                            "hostname": hostname,
-                            "data": data,
-                        }
-                    )
-                except Exception:
-                    pass
-            agent_manager.disconnect(hostname)
+        pass
     except Exception as e:
         print(f"❌ Erreur agent {hostname}: {e}")
+    finally:
+        # Marquage hors ligne dans tous les cas de déconnexion
         if hostname:
-            # même logique de marquage hors ligne
             data = computers_data.get(hostname, {})
             if data and not data.get("offline"):
                 data["offline"] = True
                 data["offline_since"] = datetime.now().isoformat()
-                    try:
-                        try:
-                            insert_notification(
-                                hostname, "Agent hors ligne (erreur)", "error"
-                            )
-                        except Exception:
-                            pass
-                        await client_manager.broadcast(
-                            {
-                                "type": "alert",
-                                "hostname": hostname,
-                                "message": "Agent hors ligne (erreur)",
-                                "severity": "error",
-                                "timestamp": datetime.now().isoformat(),
-                            }
-                        )
+                try:
+                    insert_notification(hostname, "Agent hors ligne", "error")
+                except Exception:
+                    pass
+                try:
+                    await client_manager.broadcast(
+                        {
+                            "type": "alert",
+                            "hostname": hostname,
+                            "message": "Agent hors ligne",
+                            "severity": "error",
+                            "timestamp": datetime.now().isoformat(),
+                        }
+                    )
                     await client_manager.broadcast(
                         {
                             "type": "agent_update",
@@ -399,17 +334,14 @@ async def agent_endpoint(websocket: WebSocket, computers_data):
 def setup_websocket(app, computers_data):
     """Configure les endpoints WebSocket sur l'app FastAPI"""
 
-    # capturer la boucle d'exécution utilisée par FastAPI/uvicorn
     @app.on_event("startup")
     async def _capture_loop():
         set_main_loop(asyncio.get_running_loop())
 
     @app.websocket("/ws")
     async def websocket_web_clients(websocket: WebSocket):
-        """WebSocket pour les clients web (navigateur)"""
         await web_client_endpoint(websocket, computers_data)
 
     @app.websocket("/ws/agent")
     async def websocket_agents(websocket: WebSocket):
-        """WebSocket pour les agents (envoient les données)"""
         await agent_endpoint(websocket, computers_data)

@@ -2,6 +2,7 @@
 server/config.yaml
 server/config.py
 agent/config.yaml
+agent/agent_config.json
 agent/config.py
 server/users.yaml
 uv.lock

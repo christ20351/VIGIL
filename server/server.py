@@ -1,12 +1,78 @@
 # For terminal dashboard
 import argparse
+import os
 import sys
 import threading
 from datetime import datetime
+from pathlib import Path
 
 import uvicorn
 
-# Importer les modules séparés
+# ================================================================
+#  RÉSOLUTION DES CHEMINS (PyInstaller + dev)
+# ================================================================
+
+
+def get_base_dir() -> Path:
+    """
+    Retourne le dossier de base selon le contexte :
+    - Binaire PyInstaller  → dossier du .exe  (os.path.dirname(sys.executable))
+    - Script Python normal → dossier de server.py
+    """
+    if getattr(sys, "frozen", False):
+        # on tourne dans un binaire PyInstaller
+        return Path(sys.executable).parent
+    return Path(__file__).parent
+
+
+BASE_DIR = get_base_dir()
+STATIC_DIR = BASE_DIR / "static"
+TEMPLATES_DIR = BASE_DIR / "templates"
+
+
+def _ensure_config():
+    """
+    Génère server/config.yaml à côté du binaire/script si absent.
+    Évite toute double-demande : on ne pose AUCUNE question ici,
+    l'utilisateur édite le fichier manuellement si besoin.
+    """
+    config_path = BASE_DIR / "config.yaml"
+    if config_path.exists():
+        return  # déjà présent, on ne touche à rien
+
+    default = """\
+# Configuration VIGIL Server — éditez ce fichier puis relancez
+SERVER_HOST: "0.0.0.0"
+SERVER_PORT: 5000
+
+ALLOWED_AGENT_IPS: []
+ALLOWED_CLIENT_IPS: []
+
+ENABLE_AUTH: false
+AUTH_TOKEN: "changez-moi"
+
+TIMEOUT: 60
+PROCESS_LIMIT: 100
+NETWORK_CONN_LIMIT: 100
+
+CPU_ALERT_THRESHOLD: 90
+CPU_ALERT_DURATION: 25
+RAM_ALERT_THRESHOLD: 95
+DISK_ALERT_THRESHOLD: 90
+"""
+    config_path.write_text(default, encoding="utf-8")
+    print(f"[VIGIL] config.yaml créé → {config_path}")
+    print("[VIGIL] Éditez-le puis relancez le serveur.")
+
+
+# ── Génération config si besoin (1 seul appel, silencieux si déjà là) ──
+_ensure_config()
+
+
+# ================================================================
+#  IMPORT DES MODULES INTERNES
+# (après _ensure_config pour que config.py trouve son yaml)
+# ================================================================
 from cleanup import clean_old_data
 from config import SERVER_HOST, SERVER_PORT
 from dashboard import create_terminal_dashboard
@@ -18,6 +84,11 @@ from rich.console import Console
 from routes import setup_routes
 from websocket_handler import setup_websocket
 
+import auth
+import config
+from fastapi import Request
+from fastapi.responses import JSONResponse, RedirectResponse
+
 
 def print_banner():
     print("+-----------+")
@@ -26,28 +97,22 @@ def print_banner():
     print("       VIGIL — Monitoring lightweight")
 
 
+# ================================================================
+#  APPLICATION FASTAPI
+# ================================================================
 app = FastAPI(name="PC Monitor Server")
-
-import auth
-import config
-
-# middleware pour rediriger/forcer l'authentification lorsque c'est activé
-from fastapi import Request
-from fastapi.responses import JSONResponse, RedirectResponse
 
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     if config.ENABLE_AUTH:
         path = request.url.path
-        # autoriser les ressources statiques et routes publiques
         if (
             path.startswith("/static")
             or path in ("/login", "/logout", "/health", "/update")
             or path.startswith("/ws")
         ):
             return await call_next(request)
-        # vérifier session
         cookie = request.cookies.get("session")
         user = auth.verify_session(cookie) if cookie else None
         if not user:
@@ -58,21 +123,19 @@ async def auth_middleware(request: Request, call_next):
     return await call_next(request)
 
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Mount static files — chemin absolu résolu selon contexte
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-# Templates
-templates = Jinja2Templates(directory="templates")
+# Templates — chemin absolu résolu selon contexte
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 # Data partagée
 computers_data = {}
 
-# initialisation stockage historique
+# Initialisation stockage historique
 try:
-    # le module a été déplacé dans le package `db`
     init_db()
 
-    # lancer un prune quotidien
     def _pruner():
         import time
 
@@ -84,18 +147,19 @@ try:
 except Exception:
     pass
 
-# Setup routes
+# Setup routes & WebSocket
 setup_routes(app, templates, computers_data)
-
-# Setup WebSocket
 setup_websocket(app, computers_data)
 
-# Démarre le nettoyage en arrière-plan
+# Nettoyage en arrière-plan
 clean_old_data(computers_data)
 
 
+# ================================================================
+#  POINT D'ENTRÉE
+# ================================================================
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Serveur de monitoring")
+    parser = argparse.ArgumentParser(description="Serveur de monitoring VIGIL")
     parser.add_argument(
         "--mode",
         choices=["web", "terminal"],
@@ -104,6 +168,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    os.system("cls" if sys.platform == "win32" else "clear")
     print("=" * 60)
     print("🖥️  SERVEUR DE MONITORING v2.0")
     print_banner()
@@ -117,20 +182,16 @@ if __name__ == "__main__":
         create_terminal_dashboard(computers_data)
     else:
         print(f"📊 Interface web    : http://localhost:{SERVER_PORT}")
-        print(f"🌐 Accès réseau     : http://localhost:{SERVER_PORT}")
+        print(f"🌐 Accès réseau     : http://<votre-IP>:{SERVER_PORT}")
         print(f"📡 API endpoint     : http://localhost:{SERVER_PORT}/api/computers")
         print(f"❤️  Health check    : http://localhost:{SERVER_PORT}/health")
+        print(f"📁 Config chargée  : {BASE_DIR / 'config.yaml'}")
         print("=" * 60)
         print()
         print("💡 Appuyez sur Ctrl+C pour arrêter le serveur")
         print()
 
         try:
-            # use app directly (no import string needed for simple runs)
-            # reload=True causes uvicorn to require an import string
-            # which is tricky when running via `python server.py`.  Instead
-            # start with `uvicorn server.server:app --reload` if you need
-            # automatic reloading during development.
             uvicorn.run(app, host=SERVER_HOST, port=SERVER_PORT, reload=False)
         except KeyboardInterrupt:
             print("\n\n🛑 Arrêt du serveur...")

@@ -1,0 +1,168 @@
+name: Build & Release VIGIL
+
+on:
+  push:
+    tags:
+      - 'v*'   # déclenché sur v1.0, v2.0, etc.
+
+jobs:
+  # ============================================================
+  #  BUILD LINUX
+  # ============================================================
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller
+          pip install -r agent/requirements.txt  || true
+          pip install -r server/requirements.txt || true
+
+      - name: Build Agent (Linux)
+        working-directory: agent
+        run: |
+          pyinstaller --onefile --name vigil-agent agent.py
+          mv dist/vigil-agent ../vigil-agent-linux
+
+      - name: Build Server (Linux)
+        working-directory: server
+        run: |
+          pyinstaller --onefile --name vigil-server server.py
+          mv dist/vigil-server ../vigil-server-linux
+
+      # Le serveur a besoin de static/ et templates/ à côté du binaire
+      - name: Package server (Linux)
+        run: |
+          mkdir -p release-linux/server
+          cp vigil-server-linux          release-linux/server/vigil-server
+          cp -r server/static            release-linux/server/static
+          cp -r server/templates         release-linux/server/templates
+          # config.yaml sera généré automatiquement au 1er lancement
+          echo "Lancez ./vigil-server depuis ce dossier" > release-linux/server/README.txt
+
+          mkdir -p release-linux/agent
+          cp vigil-agent-linux           release-linux/agent/vigil-agent
+          echo "Lancez ./vigil-agent depuis ce dossier" > release-linux/agent/README.txt
+
+          cd release-linux
+          tar -czf ../vigil-server-linux.tar.gz server/
+          tar -czf ../vigil-agent-linux.tar.gz  agent/
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binaries
+          path: |
+            vigil-server-linux.tar.gz
+            vigil-agent-linux.tar.gz
+
+  # ============================================================
+  #  BUILD WINDOWS
+  # ============================================================
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller
+          pip install -r agent/requirements.txt
+          pip install -r server/requirements.txt
+
+      - name: Build Agent (Windows)
+        working-directory: agent
+        run: pyinstaller --onefile --name vigil-agent agent.py
+
+      - name: Build Server (Windows)
+        working-directory: server
+        run: pyinstaller --onefile --name vigil-server server.py
+
+      # Le serveur a besoin de static/ et templates/ à côté du .exe
+      - name: Package server (Windows)
+        run: |
+          New-Item -ItemType Directory -Force -Path release-win/server
+          Copy-Item server/dist/vigil-server.exe  release-win/server/
+          Copy-Item -Recurse server/static         release-win/server/static
+          Copy-Item -Recurse server/templates      release-win/server/templates
+          Set-Content release-win/server/README.txt "Lancez vigil-server.exe depuis ce dossier"
+
+          New-Item -ItemType Directory -Force -Path release-win/agent
+          Copy-Item agent/dist/vigil-agent.exe     release-win/agent/
+          Set-Content release-win/agent/README.txt "Lancez vigil-agent.exe depuis ce dossier"
+
+          Compress-Archive -Path release-win/server/* -DestinationPath vigil-server-windows.zip
+          Compress-Archive -Path release-win/agent/*  -DestinationPath vigil-agent-windows.zip
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: |
+            vigil-server-windows.zip
+            vigil-agent-windows.zip
+
+  # ============================================================
+  #  CRÉATION DE LA RELEASE
+  # ============================================================
+  create-release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "VIGIL ${{ github.ref_name }}"
+          body: |
+            ## 🖥️ VIGIL ${{ github.ref_name }}
+
+            ### 📦 Téléchargements
+
+            | Fichier | OS | Contenu |
+            |---|---|---|
+            | `vigil-server-windows.zip` | Windows | `vigil-server.exe` + `static/` + `templates/` |
+            | `vigil-agent-windows.zip`  | Windows | `vigil-agent.exe` |
+            | `vigil-server-linux.tar.gz` | Linux  | `vigil-server` + `static/` + `templates/` |
+            | `vigil-agent-linux.tar.gz`  | Linux  | `vigil-agent` |
+
+            ### 🚀 Utilisation
+
+            **Serveur**
+            1. Extraire l'archive `vigil-server-*` dans un dossier
+            2. Lancer `vigil-server.exe` (Windows) ou `./vigil-server` (Linux)
+            3. Un `config.yaml` est généré automatiquement au 1er lancement
+            4. Éditer `config.yaml` si besoin, puis relancer
+
+            **Agent**
+            1. Extraire l'archive `vigil-agent-*` dans un dossier
+            2. Lancer `vigil-agent.exe` (Windows) ou `./vigil-agent` (Linux)
+            3. Le menu de configuration s'affiche au 1er lancement
+            4. La config est sauvegardée dans `agent_config.json`
+
+            > ⚠️ Windows : exécuter en tant qu'Administrateur
+            > ⚠️ Linux : `sudo ./vigil-agent` pour accès réseau complet
+
+          files: |
+            linux-binaries/vigil-server-linux.tar.gz
+            linux-binaries/vigil-agent-linux.tar.gz
+            windows-binaries/vigil-server-windows.zip
+            windows-binaries/vigil-agent-windows.zip
+          draft: false
+          prerelease: false
