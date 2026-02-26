@@ -1,5 +1,6 @@
 .venv
 server/config.yaml
+server/config.yaml.bak
 server/config.py
 agent/config.yaml
 agent/agent_config.json
