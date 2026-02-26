@@ -19,9 +19,23 @@ import websockets
 #  HELPERS CONFIG
 # ================================================================
 
-CONFIG_FILE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "agent_config.json"
-)
+
+def _get_config_path() -> str:
+    """
+    Toujours à côté du .exe (binaire PyInstaller) ou du script (dev).
+    _MEIPASS est un dossier TEMP détruit à chaque fermeture → ne jamais
+    stocker de données persistantes dedans.
+    """
+    if getattr(sys, "frozen", False):
+        # Binaire PyInstaller → dossier du .exe
+        base = os.path.dirname(sys.executable)
+    else:
+        # Dev classique → dossier de agent.py
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, "agent_config.json")
+
+
+CONFIG_FILE = _get_config_path()
 
 
 def _load_json_config():
@@ -99,16 +113,12 @@ def _ask(label, default=None, cast=str, validate=None, secret=False):
 def _interactive_setup(existing: dict = None) -> dict:
     """
     Configuration interactive dans le terminal.
-    Demande uniquement : IP serveur, port, intervalle.
-    Le token d'auth est géré côté serveur — l'agent le lit depuis
-    agent_config.json s'il y est déjà (mis en place par l'admin).
     """
     _clear()
     print("=" * 62)
     _print_banner()
     print("=" * 62)
 
-    # ── Config existante : proposer de garder ou modifier ────────
     if existing:
         print("\n  [INFO] Configuration existante :\n")
         print(
@@ -124,7 +134,6 @@ def _interactive_setup(existing: dict = None) -> dict:
             return existing
         print()
 
-    # ── Saisie ──────────────────────────────────────────────────
     print("  ┌────────────────────────────────────────────────────┐")
     print("  │          Configuration de l'agent VIGIL            │")
     print("  └────────────────────────────────────────────────────┘")
@@ -150,7 +159,6 @@ def _interactive_setup(existing: dict = None) -> dict:
         validate=lambda v: v >= 1,
     )
 
-    # ── Récapitulatif ───────────────────────────────────────────
     print()
     print("  ┌────────────────────────────────────────────────────┐")
     print("  │                   Récapitulatif                    │")
@@ -167,7 +175,6 @@ def _interactive_setup(existing: dict = None) -> dict:
         print("\n  [!] Annulé. Relancez l'agent pour recommencer.\n")
         sys.exit(0)
 
-    # Conserver le token existant s'il y en a un (mis par l'admin)
     cfg = {
         "SERVER_IP": server_ip,
         "SERVER_PORT": server_port,
@@ -176,35 +183,30 @@ def _interactive_setup(existing: dict = None) -> dict:
         "AUTH_TOKEN": existing.get("AUTH_TOKEN", None) if existing else None,
     }
     _save_json_config(cfg)
-    print("\n  [OK] Configuration sauvegardée → agent_config.json")
+    print(f"\n  [OK] Configuration sauvegardée → {CONFIG_FILE}")
     time.sleep(1)
     return cfg
 
 
 # ================================================================
-#  POINT D'ENTRÉE  (tout le reste s'exécute ici, une seule fois)
+#  POINT D'ENTRÉE
 # ================================================================
 if __name__ == "__main__":
 
-    # ── 1. Décider si on lance le setup ─────────────────────────
-    # Déclenchement si :
-    #   • aucun agent_config.json valide  → premier lancement
-    #   • --reconfigure / --config passé  → reconfiguration forcée
     force = "--reconfigure" in sys.argv or "--config" in sys.argv
     json_cfg = _load_json_config()
 
     if force or not json_cfg:
         json_cfg = _interactive_setup(json_cfg)
 
-    # ── 2. Charger la config finale ──────────────────────────────
+    # Charger la config finale
     SERVER_IP = json_cfg["SERVER_IP"]
     SERVER_PORT = json_cfg["SERVER_PORT"]
     UPDATE_INTERVAL = json_cfg.get("UPDATE_INTERVAL", 1)
     ENABLE_AUTH = json_cfg.get("ENABLE_AUTH", False)
     AUTH_TOKEN = json_cfg.get("AUTH_TOKEN", None)
 
-    # ── Fallback config.py si json_cfg venait d'un config.py ─────
-    # (cas installation classique via dépôt cloné sans agent_config.json)
+    # Fallback token depuis server/config.yaml si pas dans agent_config.json
     if not AUTH_TOKEN:
         try:
             import yaml
@@ -219,17 +221,11 @@ if __name__ == "__main__":
                     AUTH_TOKEN = data.get("AUTH_TOKEN")
                 if "ENABLE_AUTH" in data:
                     ENABLE_AUTH = bool(data.get("ENABLE_AUTH"))
-                print(
-                    f"(agent) fallback token depuis {cfg_path}: "
-                    f"ENABLE_AUTH={ENABLE_AUTH}, AUTH_TOKEN={'***' if AUTH_TOKEN else None}"
-                )
         except Exception:
             pass
 
-    # ── 3. Importer les métriques ────────────────────────────────
     from system_info import get_system_info
 
-    # ── 4. Variables runtime ─────────────────────────────────────
     HOSTNAME = socket.gethostname()
     AGENT_PORT = 8080
     WS_URL = f"ws://{SERVER_IP}:{SERVER_PORT}/ws/agent"
@@ -246,7 +242,6 @@ if __name__ == "__main__":
 
     LOCAL_IP = get_local_ip()
 
-    # ── 5. Bannière de démarrage ─────────────────────────────────
     _clear()
     print("=" * 70)
     print(f"🤖 Agent de Monitoring v3.0 - {HOSTNAME}")
@@ -257,10 +252,10 @@ if __name__ == "__main__":
     print(f"🌐 Port ping         : {AGENT_PORT} (fallback)")
     print(f"💻 OS détecté       : {sys.platform}")
     print(f"🖥️  IP locale        : {LOCAL_IP}")
+    print(f"📁 Config chargée   : {CONFIG_FILE}")
     print("=" * 70)
     print()
 
-    # ── 6. Fonctions WebSocket & ping ────────────────────────────
     async def send_data_websocket():
         print("🚀 Démarrage de la connexion WebSocket...")
         reconnect_delay = 1
@@ -281,10 +276,6 @@ if __name__ == "__main__":
                     if ENABLE_AUTH and AUTH_TOKEN:
                         register_payload["auth_token"] = AUTH_TOKEN
 
-                    dbg = {**register_payload}
-                    if "auth_token" in dbg:
-                        dbg["auth_token"] = "***"
-                    print(f"-> register payload: {dbg}")
                     await websocket.send(json.dumps(register_payload))
 
                     while True:
@@ -355,7 +346,6 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"❌ Erreur serveur ping: {e}")
 
-    # ── 7. Démarrage ─────────────────────────────────────────────
     ping_thread = threading.Thread(target=start_ping_server, daemon=True)
     ping_thread.start()
 

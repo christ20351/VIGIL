@@ -96,12 +96,7 @@ def print_banner():
     print("+-----------+")
     print("       VIGIL — Monitoring lightweight")
 
-
-# ================================================================
-#  APPLICATION FASTAPI
-# ================================================================
 app = FastAPI(name="PC Monitor Server")
-
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
