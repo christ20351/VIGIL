@@ -13,3 +13,12 @@ def register(app):
         if hostname in app.state.computers_data:
             return app.state.computers_data[hostname]
         return JSONResponse({"error": "Computer not found"}, status_code=404)
+
+    # route additionnelle utilisée par le JS (fallback dans onglet SMART)
+    @app.get("/api/computers/{hostname}/smart")
+    def get_computer_smart(hostname: str):
+        """Ne renvoie que le payload SMART d'un agent (vide si non disponible)."""
+        if hostname in app.state.computers_data:
+            data = app.state.computers_data[hostname]
+            return {"smart": data.get("smart", {})}
+        return JSONResponse({"error": "Computer not found"}, status_code=404)

@@ -3,7 +3,7 @@ name: Build & Release VIGIL
 on:
   push:
     tags:
-      - 'v*'   # déclenché sur v1.0, v2.0, etc.
+      - "v*" # déclenché sur v1.0, v2.0, etc.
 
 jobs:
   # ============================================================
@@ -17,7 +17,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install dependencies
         run: |
@@ -44,6 +44,11 @@ jobs:
           cp vigil-server-linux          release-linux/server/vigil-server
           cp -r server/static            release-linux/server/static
           cp -r server/templates         release-linux/server/templates
+          # include linux smartctl binary if packaged
+          if [ -f agent/bin/linux/smartctl ]; then
+            cp agent/bin/linux/smartctl    release-linux/server/
+            cp agent/bin/linux/smartctl    release-linux/agent/
+          fi
           # config.yaml sera généré automatiquement au 1er lancement
           echo "Lancez ./vigil-server depuis ce dossier" > release-linux/server/README.txt
 
@@ -74,7 +79,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install dependencies
         run: |
@@ -97,6 +102,11 @@ jobs:
           Copy-Item server/dist/vigil-server.exe  release-win/server/
           Copy-Item -Recurse server/static         release-win/server/static
           Copy-Item -Recurse server/templates      release-win/server/templates
+          # include windows smartctl if present
+          if (Test-Path agent\\bin\\windows\\smartctl.exe) {
+            Copy-Item agent\\bin\\windows\\smartctl.exe release-win/server/
+            Copy-Item agent\\bin\\windows\\smartctl.exe release-win/agent/
+          }
           Set-Content release-win/server/README.txt "Lancez vigil-server.exe depuis ce dossier"
 
           New-Item -ItemType Directory -Force -Path release-win/agent
@@ -138,9 +148,9 @@ jobs:
             | Fichier | OS | Contenu |
             |---|---|---|
             | `vigil-server-windows.zip` | Windows | `vigil-server.exe` + `static/` + `templates/` |
-            | `vigil-agent-windows.zip`  | Windows | `vigil-agent.exe` |
+            | `vigil-agent-windows.zip`  | Windows | `vigil-agent.exe` + `smartctl.exe` (if available) |
             | `vigil-server-linux.tar.gz` | Linux  | `vigil-server` + `static/` + `templates/` |
-            | `vigil-agent-linux.tar.gz`  | Linux  | `vigil-agent` |
+            | `vigil-agent-linux.tar.gz`  | Linux  | `vigil-agent` + `smartctl` (if available) |
 
             ### 🚀 Utilisation
 

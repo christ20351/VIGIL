@@ -22,6 +22,7 @@ def setup_routes(app: FastAPI, tmpl: Jinja2Templates, shared_data: dict):
         api_history,
         api_notifications,
         api_settings,
+        api_smart,
         auth,
         health,
         legacy,
@@ -35,6 +36,7 @@ def setup_routes(app: FastAPI, tmpl: Jinja2Templates, shared_data: dict):
     api_settings.register(app)
     api_history.register(app)
     api_notifications.register(app)
+    api_smart.register(app)
     legacy.register(app)
     health.register(app)
     # index route lives in auth module as well (main page)

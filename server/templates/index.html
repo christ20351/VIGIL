@@ -5,39 +5,55 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>VIGIL — Monitoring Dashboard</title>
 
+    <!-- Fonts (with fallback system) -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;600;700;800&display=swap"
       rel="stylesheet"
+      onerror="console.warn('Google Fonts unavailable, using system fonts')"
     />
 
-    <script
-      src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
-      onerror="window.CHARTJS_UNAVAILABLE = true"
-    ></script>
-
-    <script
-      src="https://unpkg.com/lucide@0.344.0/dist/umd/lucide.js"
-      onerror="window.LUCIDE_UNAVAILABLE = true"
-    ></script>
-
-    <!-- APRÈS (local, fonctionne sans internet) -->
-    <script src="/static/vendor/chart.umd.min.js"></script>
-    <script src="/static/vendor/lucide.js"></script>
-    <script src="/static/script.js"></script>
-    <script src="/static/sidebar/dashboard/dashboard.js"></script>
-    <script src="/static/sidebar/agents/agents.js"></script>
-    <script src="/static/sidebar/activity/activity.js"></script>
-    <script src="/static/sidebar/security/security.js"></script>
-    <script src="/static/sidebar/settings/settings.js"></script>
-
+    <!-- CSS Stylesheets (local, works offline) -->
     <link rel="stylesheet" href="/static/style.css" />
     <link rel="stylesheet" href="/static/sidebar/dashboard/dashboard.css" />
+    <link rel="stylesheet" href="/static/sidebar/dashboard/smart.css" />
     <link rel="stylesheet" href="/static/sidebar/agents/agents.css" />
     <link rel="stylesheet" href="/static/sidebar/activity/activity.css" />
     <link rel="stylesheet" href="/static/sidebar/security/security.css" />
     <link rel="stylesheet" href="/static/sidebar/settings/settings.css" />
+
+    <!-- Chart.js and Lucide (local first, works offline) -->
+    <script src="/static/vendor/chart.umd.min.js"></script>
+    <script src="/static/vendor/lucide.js"></script>
+
+    <!-- Fallback to CDN if local versions fail -->
+    <script>
+      if (typeof Chart === "undefined") {
+        const script = document.createElement("script");
+        script.src =
+          "https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js";
+        script.onerror = () =>
+          console.error("Chart.js unavailable from all sources");
+        document.head.appendChild(script);
+      }
+      if (typeof lucide === "undefined") {
+        const script = document.createElement("script");
+        script.src = "https://unpkg.com/lucide@0.344.0/dist/umd/lucide.js";
+        script.onerror = () =>
+          console.error("Lucide unavailable from all sources");
+        document.head.appendChild(script);
+      }
+    </script>
+
+    <!-- Application scripts (always loaded locally) -->
+    <script src="/static/script.js"></script>
+    <script src="/static/sidebar/dashboard/dashboard.js"></script>
+    <script src="/static/sidebar/dashboard/smart.js"></script>
+    <script src="/static/sidebar/agents/agents.js"></script>
+    <script src="/static/sidebar/activity/activity.js"></script>
+    <script src="/static/sidebar/security/security.js"></script>
+    <script src="/static/sidebar/settings/settings.js"></script>
   </head>
   <body>
     <div class="app">
@@ -141,6 +157,9 @@
           <button class="tab" onclick="switchTab('network')">
             <i data-lucide="network"></i> Réseau
           </button>
+          <button class="tab" onclick="switchTab('smart')">
+            <i data-lucide="hard-drive"></i> S.M.A.R.T.
+          </button>
           <button class="tab" onclick="switchTab('history')">
             <i data-lucide="clock"></i> Historique
           </button>
@@ -153,6 +172,7 @@
           <div id="tab-overview" class="tab-content active"></div>
           <div id="tab-processes" class="tab-content"></div>
           <div id="tab-network" class="tab-content"></div>
+          <div id="tab-smart" class="tab-content"></div>
           <div id="tab-history" class="tab-content"></div>
           <div id="tab-protocols" class="tab-content"></div>
         </div>

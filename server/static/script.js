@@ -4,32 +4,53 @@
 
 // ─── DÉTECTION HORS-LIGNE ──────────────────────────────────────────
 //
-// window.CHARTJS_UNAVAILABLE  → mis à true par l'attribut onerror
-//                               du <script> dans le HTML si le CDN
-//                               Chart.js est inaccessible.
-//
-// window.LUCIDE_UNAVAILABLE   → mis à true si le CDN Lucide échoue.
-//
-// Ces deux flags sont définis dans le HTML AVANT ce script,
-// donc on peut les lire ici dès le chargement.
+// Vérifie la disponibilité de Chart.js et Lucide en temps réel
+// Support offline complet avec versions locales ou CDN
 
-const CHARTJS_OK = !window.CHARTJS_UNAVAILABLE && typeof Chart !== "undefined";
-const LUCIDE_OK = !window.LUCIDE_UNAVAILABLE && typeof lucide !== "undefined";
+let CHARTJS_OK = typeof Chart !== "undefined" && Chart.version;
+let LUCIDE_OK = typeof lucide !== "undefined" && lucide.createIcons;
+
+// Retry mechanism pour charger les CDN avec délai
+function waitForLibraries(timeout = 5000) {
+  return new Promise((resolve) => {
+    const startTime = Date.now();
+    const checkInterval = setInterval(() => {
+      CHARTJS_OK = typeof Chart !== "undefined" && Chart.version;
+      LUCIDE_OK = typeof lucide !== "undefined" && lucide.createIcons;
+
+      if ((CHARTJS_OK && LUCIDE_OK) || Date.now() - startTime > timeout) {
+        clearInterval(checkInterval);
+        resolve();
+      }
+    }, 100);
+  });
+}
 
 // Wrapper Lucide : appelle createIcons() seulement si disponible,
 // sinon remplace les <i data-lucide> par un carré neutre (CSS .icon-fallback)
 function refreshIcons() {
-  if (LUCIDE_OK) {
-    lucide.createIcons();
+  if (typeof lucide !== "undefined" && lucide.createIcons) {
+    try {
+      lucide.createIcons();
+    } catch (e) {
+      console.warn("Lucide.createIcons() failed:", e);
+      replaceLucideWithFallback();
+    }
   } else {
-    document.querySelectorAll("i[data-lucide]").forEach((el) => {
-      if (!el.dataset.replaced) {
-        const span = document.createElement("span");
-        span.className = "icon-fallback";
-        el.replaceWith(span);
-      }
-    });
+    replaceLucideWithFallback();
   }
+}
+
+function replaceLucideWithFallback() {
+  document.querySelectorAll("i[data-lucide]").forEach((el) => {
+    if (!el.dataset.replaced) {
+      const span = document.createElement("span");
+      span.className = "icon-fallback";
+      span.title = `Icon: ${el.dataset.lucide}`;
+      el.replaceWith(span);
+      span.dataset.replaced = "true";
+    }
+  });
 }
 
 // ─── STATE ────────────────────────────────────────────────────────
@@ -196,14 +217,21 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Données de démo : retire ce bloc quand les vrais agents sont connectés
-  injectDemoData();
+  if (DEMO_MODE) injectDemoData();
   updateNotifBadge();
 });
 
-// ─── DÉMO ─────────────────────────────────────────────────────────
+// ─── DÉMO (désactivé en mode réel) ─────────────────────────────────
+// Cette section injecte des données factices et simule des changements.
+// Lorsqu'on se connecte à un vrai serveur WebSocket, elle n'est pas exécutée
+// pour éviter les erreurs `d is undefined` lorsque le tableau `hosts`
+// ne correspond plus à la collection `computersData`.
 
-// ─── DÉMO ─────────────────────────────────────────────────────────
+const DEMO_MODE = false;
+
 function injectDemoData() {
+  if (!DEMO_MODE) return;
+
   const hosts = ["WORKSTATION-01", "SERVER-PROD", "DEV-MACHINE", "LAPTOP-RH"];
   const oses = [
     "Windows 11 Pro",
@@ -251,6 +279,7 @@ function injectDemoData() {
   setInterval(() => {
     hosts.forEach((h) => {
       const d = computersData[h];
+      if (!d) return; // defensive
       d.cpu_percent = clamp(d.cpu_percent + rand(-8, 8), 2, 98);
       d.memory.percent = clamp(d.memory.percent + rand(-4, 4), 10, 95);
       d.disk.percent = clamp(d.disk.percent + rand(-1, 1), 10, 98);
@@ -378,6 +407,10 @@ function initWebSocket() {
           }
 
           if (msg.type === "agent_update" && msg.hostname && msg.data) {
+            console.log(
+              `[SMART] onmessage agent_update for ${msg.hostname}`,
+              msg.data.smart,
+            );
             computersData[msg.hostname] = msg.data;
             if (!chartHistory[msg.hostname])
               chartHistory[msg.hostname] = {
@@ -396,6 +429,21 @@ function initWebSocket() {
             ) {
               const active = document.querySelector(".tab-content.active");
               if (active?.id === "tab-overview") renderOverview(msg.hostname);
+              if (active?.id === "tab-smart") {
+                console.log(
+                  `[SMART] agent_update received for ${msg.hostname}:`,
+                  msg.data.smart,
+                );
+                try {
+                  if (typeof updateSmartHealthTab === "function")
+                    updateSmartHealthTab(msg.hostname);
+                } catch (e) {
+                  console.warn(
+                    "[SMART] failed to update smart tab on agent_update",
+                    e,
+                  );
+                }
+              }
               updateLiveChart(msg.hostname);
               updateHistoryChart(msg.hostname);
             }

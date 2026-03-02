@@ -249,7 +249,53 @@ function renderSettingsView() {
                 </div>
               </div>
 
-            </div><!-- /.settings-grid -->
+              <!-- ── S.M.A.R.T. ── -->
+              <div class="settings-section">
+                <div class="settings-section-header">
+                  <svg class="settings-section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><polyline points="2 17 8 17 8 21 16 21 16 17 22 17"/>
+                  </svg>
+                  <span class="settings-section-title">Disques S.M.A.R.T.</span>
+                </div>
+                <div class="settings-section-body">
+
+                  <div class="settings-toggle-row">
+                    <div class="settings-toggle-info">
+                      <span class="settings-toggle-label">Monitoring S.M.A.R.T. activé</span>
+                      <span class="settings-toggle-desc">Surveille la santé des disques via smartctl</span>
+                    </div>
+                    <label class="settings-switch">
+                      <input type="checkbox" name="HDD_SMART_ENABLED" id="HDD_SMART_ENABLED" ${cfg.HDD_SMART_ENABLED ? "checked" : ""} />
+                      <span class="settings-switch-slider"></span>
+                    </label>
+                  </div>
+
+                  <div class="settings-field">
+                    <label class="settings-label" for="HDD_TEMP_WARNING">Seuil température AVERTISSEMENT (°C)</label>
+                    <div class="settings-input-wrap">
+                      <svg class="settings-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2v20m-7-4a7 7 0 1 1 14 0"/>
+                      </svg>
+                      <input class="settings-input" id="HDD_TEMP_WARNING" type="number" name="HDD_TEMP_WARNING"
+                             value="${cfg.HDD_TEMP_WARNING || 45}" placeholder="45" min="20" max="100" />
+                    </div>
+                    <span class="settings-hint">Déclenche une alerte jaune au-dessus de cette température</span>
+                  </div>
+
+                  <div class="settings-field">
+                    <label class="settings-label" for="HDD_TEMP_CRITICAL">Seuil température CRITIQUE (°C)</label>
+                    <div class="settings-input-wrap">
+                      <svg class="settings-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2v20m-7-4a7 7 0 1 1 14 0"/>
+                      </svg>
+                      <input class="settings-input" id="HDD_TEMP_CRITICAL" type="number" name="HDD_TEMP_CRITICAL"
+                             value="${cfg.HDD_TEMP_CRITICAL || 55}" placeholder="55" min="20" max="100" />
+                    </div>
+                    <span class="settings-hint">Déclenche une alerte rouge au-dessus de cette température</span>
+                  </div>
+
+                </div>
+              </div>
 
             <!-- Bouton bas de page -->
             <div class="settings-actions">

@@ -25,6 +25,9 @@ def register(app):
                 "CPU_ALERT_DURATION",
                 "RAM_ALERT_THRESHOLD",
                 "DISK_ALERT_THRESHOLD",
+                "HDD_SMART_ENABLED",
+                "HDD_TEMP_WARNING",
+                "HDD_TEMP_CRITICAL",
             ]
             return {k: getattr(config, k, None) for k in keys}
         except Exception:
@@ -69,6 +72,24 @@ def register(app):
             shutil.copyfile(bak, config.CONFIG_PATH)
             config.reload()
             return {"status": "ok"}
+        except Exception as e:
+            import traceback
+
+            traceback.print_exc()
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    @app.post("/api/settings/reload")
+    def reload_settings():
+        """
+        Recharge les paramètres depuis le config.yaml sans redémarrer le serveur.
+        Retourne les changements détectés, le cas échéant.
+        """
+        try:
+            changes = config.check_config_updates()
+            if changes:
+                return {"status": "ok", "changes": changes}
+            else:
+                return {"status": "ok", "message": "No changes detected"}
         except Exception as e:
             import traceback
 

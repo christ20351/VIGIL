@@ -10,6 +10,9 @@ _default = {
     "TIMEOUT": 10,
     "PROCESS_LIMIT": 100,
     "NETWORK_CONN_LIMIT": 100,
+    "HDD_SMART_ENABLED": True,
+    "HDD_TEMP_WARNING": 45,
+    "HDD_TEMP_CRITICAL": 55,
 }
 
 def _load_config() -> dict:

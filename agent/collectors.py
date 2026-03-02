@@ -12,6 +12,8 @@ import psutil
 # importer les constantes de config pour les limites
 
 PROCESS_LIMIT = 30
+
+
 def get_network_protocols():
     """Récupère les connexions réseau par protocole"""
     protocols = {
@@ -184,3 +186,13 @@ def get_top_processes(limit=None):
         print(f"⚠️  Erreur processus: {e}")
 
     return processes
+
+
+def get_disk_smart_health():
+    """S.M.A.R.T. integration removed.
+
+    This project had S.M.A.R.T. support added; it has been removed and this
+    placeholder returns that SMART is not available. Keep this stub to avoid
+    breaking callers.
+    """
+    return {"available": False, "error": "SMART support removed"}

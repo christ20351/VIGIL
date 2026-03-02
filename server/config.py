@@ -1,12 +1,14 @@
 import os
 import sys
+import threading
 import time
-import yaml
 
+import yaml
 
 # ================================================================
 #  RÉSOLUTION DU CHEMIN CONFIG (PyInstaller + dev)
 # ================================================================
+
 
 def _get_config_path() -> str:
     """
@@ -45,12 +47,14 @@ _default = {
 #  SETUP INTERACTIF (premier lancement)
 # ================================================================
 
+
 def _clear():
     os.system("cls" if sys.platform == "win32" else "clear")
 
 
 def _print_banner():
-    print(r"""
+    print(
+        r"""
  __     __ ___    _       _     _
  \ \   / // __|  (_)     (_)   | |
   \ \_/ /| (_|    _  ___  _  __| |
@@ -60,7 +64,8 @@ def _print_banner():
                |__/
 
            VIGIL - Monitoring Server
-""")
+"""
+    )
 
 
 def _ask(label, default=None, cast=str, validate=None):
@@ -73,7 +78,11 @@ def _ask(label, default=None, cast=str, validate=None):
             print("\n\n  [!] Configuration annulée.")
             sys.exit(0)
 
-        value = raw.strip() if raw.strip() else (str(default) if default is not None else "")
+        value = (
+            raw.strip()
+            if raw.strip()
+            else (str(default) if default is not None else "")
+        )
 
         if not value:
             print("  [!] Ce champ est obligatoire.")
@@ -102,7 +111,7 @@ def _ask_bool(label, default=False) -> bool:
     return default
 
 
-def _interactive_setup(existing: dict = None) -> dict:
+def _interactive_setup(existing: dict | None = None) -> dict:
     """
     Menu de configuration interactif affiché au premier lancement
     ou si --reconfigure est passé en argument.
@@ -115,8 +124,12 @@ def _interactive_setup(existing: dict = None) -> dict:
     # Si config existante, proposer de garder ou modifier
     if existing:
         print("\n  [INFO] Configuration existante :\n")
-        print(f"    Host       : {existing.get('SERVER_HOST')}:{existing.get('SERVER_PORT')}")
-        print(f"    Auth       : {'activée' if existing.get('ENABLE_AUTH') else 'désactivée'}")
+        print(
+            f"    Host       : {existing.get('SERVER_HOST')}:{existing.get('SERVER_PORT')}"
+        )
+        print(
+            f"    Auth       : {'activée' if existing.get('ENABLE_AUTH') else 'désactivée'}"
+        )
         print()
         try:
             rep = input("  Reconfigurer ? (o/N) : ").strip().lower()
@@ -150,10 +163,18 @@ def _interactive_setup(existing: dict = None) -> dict:
         "Activer l'authentification par token ?",
         default=existing.get("ENABLE_AUTH", False) if existing else False,
     )
-    token = existing.get("AUTH_TOKEN", "votre-token-secret-ici") if existing else "votre-token-secret-ici"
+    token = (
+        existing.get("AUTH_TOKEN", "votre-token-secret-ici")
+        if existing
+        else "votre-token-secret-ici"
+    )
     if enable_auth:
-        import secrets, string
-        generated = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(24))
+        import secrets
+        import string
+
+        generated = "".join(
+            secrets.choice(string.ascii_letters + string.digits) for _ in range(24)
+        )
         token = _ask(
             "Token secret",
             default=existing.get("AUTH_TOKEN", generated) if existing else generated,
@@ -186,8 +207,12 @@ def _interactive_setup(existing: dict = None) -> dict:
     print("  │                   Récapitulatif                    │")
     print("  └────────────────────────────────────────────────────┘")
     print(f"    Serveur    : http://{host}:{port}")
-    print(f"    Auth       : {'activée — token: ' + token if enable_auth else 'désactivée'}")
-    print(f"    Alertes    : CPU>{cpu_threshold}% | RAM>{ram_threshold}% | Disque>{disk_threshold}%")
+    print(
+        f"    Auth       : {'activée — token: ' + (token or '') if enable_auth else 'désactivée'}"
+    )
+    print(
+        f"    Alertes    : CPU>{cpu_threshold}% | RAM>{ram_threshold}% | Disque>{disk_threshold}%"
+    )
     print()
 
     try:
@@ -199,30 +224,43 @@ def _interactive_setup(existing: dict = None) -> dict:
         sys.exit(0)
 
     cfg = _default.copy()
-    if existing:
-        cfg.update(existing)
-    cfg.update({
-        "SERVER_HOST": host,
-        "SERVER_PORT": port,
-        "ENABLE_AUTH": enable_auth,
-        "AUTH_TOKEN": token,
-        "CPU_ALERT_THRESHOLD": cpu_threshold,
-        "RAM_ALERT_THRESHOLD": ram_threshold,
-        "DISK_ALERT_THRESHOLD": disk_threshold,
-    })
+    if existing is not None:
+        cfg.update({k: v for k, v in existing.items() if v is not None})
+    cfg.update(
+        {
+            "SERVER_HOST": host,
+            "SERVER_PORT": port,
+            "ENABLE_AUTH": enable_auth,
+            "AUTH_TOKEN": token,
+            "CPU_ALERT_THRESHOLD": cpu_threshold,
+            "RAM_ALERT_THRESHOLD": ram_threshold,
+            "DISK_ALERT_THRESHOLD": disk_threshold,
+        }
+    )
 
     # Sauvegarder
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         yaml.safe_dump(cfg, f)
 
     print(f"\n  [OK] Configuration sauvegardée → {CONFIG_PATH}")
-    time.sleep(1)
+    print()
+    print("  ┌────────────────────────────────────────────────────┐")
+    print("  │            À PROPOS DES MODIFICATIONS             │")
+    print("  └────────────────────────────────────────────────────┘")
+    print("  Pour modifier ces paramètres ultérieurement :")
+    print(f"  1. Éditez le fichier → {CONFIG_PATH}")
+    print("  2. Sauvegardez les changements")
+    print("  3. Le serveur recharge les changements automatiquement")
+    print("     (sans redémarrage nécessaire!)")
+    print()
+    time.sleep(2)
     return cfg
 
 
 # ================================================================
 #  CHARGEMENT CONFIG
 # ================================================================
+
 
 def _load_config() -> dict:
     try:
@@ -239,17 +277,28 @@ def _init():
     """
     Point d'entrée appelé à l'import :
     - Premier lancement (pas de config.yaml) → setup interactif
-    - --reconfigure en argument → setup interactif
-    - Config existante → chargement silencieux
+    - --reconfigure en argument → setup interactif forcé
+    - --skip-config-prompt → charge config sans demander
+    - Par défaut si config existe → demande à l'user si reconfiguration
     """
+    skip_prompt = "--skip-config-prompt" in sys.argv
     force = "--reconfigure" in sys.argv or "--config" in sys.argv
     exists = os.path.exists(CONFIG_PATH)
 
-    if force or not exists:
+    if force:
+        # Forcer la reconfiguration complète
         existing = _load_config() if exists else None
         cfg = _interactive_setup(existing)
-    else:
+    elif not exists:
+        # Premier lancement : config n'existe pas
+        cfg = _interactive_setup(None)
+    elif skip_prompt:
+        # Config existe + skip_prompt activé : charge silencieusement
         cfg = _load_config()
+    else:
+        # Config existe + pas de skip : demander à l'user
+        existing = _load_config()
+        cfg = _interactive_setup(existing)
 
     return cfg
 
@@ -265,6 +314,7 @@ for _key, _val in _config_data.items():
 #  SAVE / RELOAD
 # ================================================================
 
+
 def save_config(updates: dict) -> None:
     global _config_data
     if not hasattr(updates, "items"):
@@ -276,7 +326,11 @@ def save_config(updates: dict) -> None:
         default_val = _default[k]
         try:
             if isinstance(default_val, bool):
-                v2 = v.lower() in ("1", "true", "yes", "on") if isinstance(v, str) else bool(v)
+                v2 = (
+                    v.lower() in ("1", "true", "yes", "on")
+                    if isinstance(v, str)
+                    else bool(v)
+                )
                 _config_data[k] = v2
             elif isinstance(default_val, int):
                 _config_data[k] = int(v)
@@ -319,3 +373,110 @@ def reload() -> None:
     _config_data = _load_config()
     for key, val in _config_data.items():
         globals()[key] = val
+
+
+# ================================================================
+#  AUTO-RELOAD CONFIG WATCHER (surveillance fichier)
+# ================================================================
+
+_config_mtime = None
+_reload_callbacks = []
+
+
+def get_config_mtime() -> float:
+    """Retourne le timestamp du dernier changement du config.yaml"""
+    try:
+        if os.path.exists(CONFIG_PATH):
+            return os.path.getmtime(CONFIG_PATH)
+    except Exception:
+        pass
+    return 0.0
+
+
+def register_reload_callback(callback):
+    """
+    Enregistre une fonction à appeler automatiquement quand la config change.
+    La fonction reçoit le dictionnaire des changements en argument.
+
+    Exemple:
+      def on_config_change(changes):
+        print(f"Config changed: {changes}")
+
+      register_reload_callback(on_config_change)
+    """
+    if callable(callback):
+        _reload_callbacks.append(callback)
+
+
+def check_config_updates() -> dict | None:
+    """
+    Vérifie si le config.yaml a été modifié depuis le dernier chargement.
+    Retourne None si pas de changement, sinon retourne le dictionnaire des changements.
+    """
+    global _config_mtime, _config_data
+
+    try:
+        current_mtime = get_config_mtime()
+        if _config_mtime is None:
+            _config_mtime = current_mtime
+            return None
+
+        if current_mtime > _config_mtime:
+            print(f"[INFO] config.yaml modifié, rechargement...", file=sys.stderr)
+            old_config = _config_data.copy()
+            reload()
+            _config_mtime = current_mtime
+
+            # Déterminer les changements
+            changes = {}
+            for key, new_val in _config_data.items():
+                old_val = old_config.get(key)
+                if old_val != new_val:
+                    changes[key] = {"old": old_val, "new": new_val}
+
+            # Appeler les callbacks enregistrés
+            for callback in _reload_callbacks:
+                try:
+                    callback(changes)
+                except Exception as e:
+                    print(f"[ERROR] Callback error: {e}", file=sys.stderr)
+
+            if changes:
+                print(
+                    f"[OK] Configuration rechargée. Changements: {list(changes.keys())}",
+                    file=sys.stderr,
+                )
+
+            return changes if changes else None
+    except Exception as e:
+        print(f"[ERROR] Failed to check config updates: {e}", file=sys.stderr)
+
+    return None
+
+
+def start_config_watcher(check_interval: int = 2):
+    """
+    Démarre un thread en arrière-plan qui vérifie les changements du config.yaml
+    toutes les `check_interval` secondes.
+    """
+
+    def _watcher():
+        while True:
+            try:
+                time.sleep(check_interval)
+                check_config_updates()
+            except Exception as e:
+                print(f"[ERROR] Config watcher error: {e}", file=sys.stderr)
+
+    watcher_thread = threading.Thread(
+        target=_watcher, daemon=True, name="ConfigWatcher"
+    )
+    watcher_thread.start()
+    print(
+        f"[INFO] Config file watcher started (check interval: {check_interval}s)",
+        file=sys.stderr,
+    )
+
+
+# Initialiser le timestamp du config au démarrage
+_config_mtime = get_config_mtime()

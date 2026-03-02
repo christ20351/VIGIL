@@ -30,8 +30,12 @@ function renderComputers() {
   empty.style.display = "none";
 
   keys.forEach((hostname) => {
-    let card = document.getElementById("card-" + hostname);
     const data = computersData[hostname];
+    if (!data) {
+      console.warn("skipping renderComputers: no data for", hostname);
+      return;
+    }
+    let card = document.getElementById("card-" + hostname);
     if (!card) {
       card = document.createElement("div");
       card.className = "computer-card";
@@ -53,6 +57,10 @@ function renderComputers() {
 }
 
 function buildCardHTML(hostname, data) {
+  if (!data) {
+    console.warn("buildCardHTML called with no data for", hostname);
+    return '<div class="computer-card">données manquantes</div>';
+  }
   const cpu = (data.cpu_percent || 0).toFixed(1);
   const ram = (data.memory?.percent || 0).toFixed(1);
   const disk = (data.disk?.percent || 0).toFixed(1);
@@ -182,6 +190,19 @@ function switchTab(name) {
       break;
     case "network":
       renderNetwork(data);
+      break;
+    case "smart":
+      console.log(`[SMART] switchTab -> smart for ${currentHostname}`);
+      if (!currentHostname) {
+        const container = document.getElementById("tab-smart");
+        if (container) container.innerHTML = "<p>Aucun agent sélectionné.</p>";
+      } else {
+        try {
+          updateSmartHealthTab(currentHostname);
+        } catch (e) {
+          console.warn("[SMART] error calling updateSmartHealthTab", e);
+        }
+      }
       break;
     case "history":
       renderHistory(currentHostname);

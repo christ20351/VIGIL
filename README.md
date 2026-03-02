@@ -32,6 +32,7 @@ A powerful and lightweight real-time monitoring system to supervise multiple com
 ## ✨ Features
 
 ### 📊 Real-time Monitoring
+
 - CPU, RAM, Disk usage with live graphs
 - Network traffic: upload/download speed
 - Top 30 processes by CPU usage (PID, name, CPU%, RAM%, state, user)
@@ -39,6 +40,7 @@ A powerful and lightweight real-time monitoring system to supervise multiple com
 - Network interfaces: IPv4, IPv6, speed, active/inactive state
 
 ### 🖥️ Modern Interface
+
 - Responsive web dashboard (Chart.js)
 - Distinctive PC icons with online/offline status badges
 - History tab: visualize last 24h+ of metrics
@@ -47,16 +49,32 @@ A powerful and lightweight real-time monitoring system to supervise multiple com
 - Smooth animations and transitions
 
 ### 🔔 Configurable Alerts
+
 - CPU alert with duration threshold (e.g. CPU > 90% for more than 25s)
 - Instant RAM and Disk alerts
 - Offline agent detection with red badge and notification
 
-### 🔐 Optional Authentication
+### � S.M.A.R.T. Disk Health Monitoring
+
+> ⚠️ **Administrator privileges are required** – SMART polling only works when the program
+> is started with elevated rights (Windows Admin / Linux root).
+
+- Real-time disk health status (PASSED/FAILED) for each drive
+- Reads and displays individual SMART attributes (reallocated sectors, spin-up time, etc.)
+- Temperature graphs with per-disk thresholds and color coding
+- Automatic alerts when any SMART attribute crosses a safety limit
+- Periodic background polling and history retention (30 days by default)
+- Supports NVMe and SATA/ATA disks via `smartctl` integration
+- **See [FEATURES-SMART.md](FEATURES-SMART.md) for complete details and configuration options**
+
+### �🔐 Optional Authentication
+
 - Token-based session authentication
 - Login page with first-run account creation
 - Logout button in dashboard topbar
 
 ### ⚙️ Settings
+
 - Edit all server parameters from the web interface
 - Automatic backup before each save
 - One-click reset to previous configuration
@@ -69,20 +87,22 @@ A powerful and lightweight real-time monitoring system to supervise multiple com
 
 Download the latest release from the [Releases page](https://github.com/christ20351/VIGIL/releases).
 
-| File | OS | Component |
-|---|---|---|
-| `vigil-server-windows.zip` | Windows | Central Server |
-| `vigil-agent-windows.zip` | Windows | Monitoring Agent |
-| `vigil-server-linux.tar.gz` | Linux | Central Server |
-| `vigil-agent-linux.tar.gz` | Linux | Monitoring Agent |
+| File                        | OS      | Component        |
+| --------------------------- | ------- | ---------------- |
+| `vigil-server-windows.zip`  | Windows | Central Server   |
+| `vigil-agent-windows.zip`   | Windows | Monitoring Agent |
+| `vigil-server-linux.tar.gz` | Linux   | Central Server   |
+| `vigil-agent-linux.tar.gz`  | Linux   | Monitoring Agent |
 
 **Server setup:**
+
 1. Extract `vigil-server-*` to a folder
 2. Run `vigil-server.exe` (Windows) or `./vigil-server` (Linux) **as Administrator**
 3. An interactive setup menu appears on first launch — configure host, port, auth, and alert thresholds
 4. Open your browser at `http://localhost:5000` (or the configured port)
 
 **Agent setup:**
+
 1. Extract `vigil-agent-*` to a folder
 2. Run `vigil-agent.exe` (Windows) or `./vigil-agent` (Linux) **as Administrator**
 3. Enter the server IP and port — configuration is saved to `agent_config.json`
@@ -101,22 +121,27 @@ cd VIGIL
 ```
 
 **Windows:**
+
 ```cmd
 install.bat
 ```
 
 **Linux/Mac:**
+
 ```bash
 chmod +x install.sh
 ./install.sh
 ```
 
 The install script will:
+
 - Ask whether to install the **Server** or the **Agent**
-- Install Python dependencies automatically
-- Create a default `config.yaml`
-- Ask for basic configuration (host, port, auth)
-- Optionally start the component immediately
+- Detect `python`/`python3` and create a local virtual environment (`.venv`)
+- Automatically upgrade bundled `pip` and install Python dependencies inside the venv
+- Handle Debian/Ubuntu "externally‑managed" environments by using the venv
+- Create a default `config.yaml` and prompt for host, port, and auth
+- Offer to launch the component immediately
+- Provide clear error messages and hints when something goes wrong
 
 **Manual start after installation:**
 
@@ -142,21 +167,21 @@ python agent.py
 
 Generated automatically on first launch next to the executable (or in `server/` when running from source). Edit it manually or use the **Settings** tab in the web interface.
 
-| Parameter | Default | Description |
-|---|---|---|
-| `SERVER_HOST` | `"0.0.0.0"` | Listening interface (`0.0.0.0` = all) |
-| `SERVER_PORT` | `5000` | Web server port |
-| `ALLOWED_AGENT_IPS` | `[]` | IPs allowed for agents (empty = all) |
-| `ALLOWED_CLIENT_IPS` | `[]` | IPs allowed for browsers (empty = all) |
-| `ENABLE_AUTH` | `false` | Enable token authentication |
-| `AUTH_TOKEN` | `"..."` | Secret token (if `ENABLE_AUTH = true`) |
-| `TIMEOUT` | `60` | Seconds before marking an agent offline |
-| `CPU_ALERT_THRESHOLD` | `90` | CPU (%) to trigger alert |
-| `CPU_ALERT_DURATION` | `25` | Duration in seconds above CPU threshold |
-| `RAM_ALERT_THRESHOLD` | `95` | RAM (%) to trigger instant alert |
-| `DISK_ALERT_THRESHOLD` | `90` | Disk (%) to trigger instant alert |
-| `PROCESS_LIMIT` | `100` | Max processes reported per agent |
-| `NETWORK_CONN_LIMIT` | `100` | Max network connections reported per agent |
+| Parameter              | Default     | Description                                |
+| ---------------------- | ----------- | ------------------------------------------ |
+| `SERVER_HOST`          | `"0.0.0.0"` | Listening interface (`0.0.0.0` = all)      |
+| `SERVER_PORT`          | `5000`      | Web server port                            |
+| `ALLOWED_AGENT_IPS`    | `[]`        | IPs allowed for agents (empty = all)       |
+| `ALLOWED_CLIENT_IPS`   | `[]`        | IPs allowed for browsers (empty = all)     |
+| `ENABLE_AUTH`          | `false`     | Enable token authentication                |
+| `AUTH_TOKEN`           | `"..."`     | Secret token (if `ENABLE_AUTH = true`)     |
+| `TIMEOUT`              | `60`        | Seconds before marking an agent offline    |
+| `CPU_ALERT_THRESHOLD`  | `90`        | CPU (%) to trigger alert                   |
+| `CPU_ALERT_DURATION`   | `25`        | Duration in seconds above CPU threshold    |
+| `RAM_ALERT_THRESHOLD`  | `95`        | RAM (%) to trigger instant alert           |
+| `DISK_ALERT_THRESHOLD` | `90`        | Disk (%) to trigger instant alert          |
+| `PROCESS_LIMIT`        | `100`       | Max processes reported per agent           |
+| `NETWORK_CONN_LIMIT`   | `100`       | Max network connections reported per agent |
 
 > To force reconfiguration via terminal: `vigil-server.exe --reconfigure`
 
@@ -164,13 +189,13 @@ Generated automatically on first launch next to the executable (or in `server/` 
 
 Created automatically after the interactive setup on first launch, saved next to the executable.
 
-| Parameter | Default | Description |
-|---|---|---|
-| `SERVER_IP` | `"192.168.1.10"` | Central server IP or hostname |
-| `SERVER_PORT` | `5000` | Central server port |
-| `UPDATE_INTERVAL` | `1` | Metrics send interval (seconds) |
-| `ENABLE_AUTH` | `false` | Enable auth token |
-| `AUTH_TOKEN` | `null` | Token (must match server token) |
+| Parameter         | Default          | Description                     |
+| ----------------- | ---------------- | ------------------------------- |
+| `SERVER_IP`       | `"192.168.1.10"` | Central server IP or hostname   |
+| `SERVER_PORT`     | `5000`           | Central server port             |
+| `UPDATE_INTERVAL` | `1`              | Metrics send interval (seconds) |
+| `ENABLE_AUTH`     | `false`          | Enable auth token               |
+| `AUTH_TOKEN`      | `null`           | Token (must match server token) |
 
 > To reconfigure: `vigil-agent.exe --reconfigure`
 
@@ -199,18 +224,18 @@ vigil-agent/
 
 ## 🌐 API Endpoints
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/` | Web dashboard |
-| `GET` | `/health` | Server health check |
-| `GET` | `/api/computers` | List all agents and their current metrics |
-| `GET` | `/api/history/{hostname}?hours=24` | Metric history for a specific agent |
-| `GET` | `/api/notifications` | List all alerts |
-| `GET` | `/api/settings` | Read current server configuration |
-| `POST` | `/api/settings` | Update server configuration |
-| `POST` | `/api/settings/reset` | Restore configuration from backup |
-| `WS` | `/ws` | WebSocket for web clients (browser) |
-| `WS` | `/ws/agent` | WebSocket for agents |
+| Method | Endpoint                           | Description                               |
+| ------ | ---------------------------------- | ----------------------------------------- |
+| `GET`  | `/`                                | Web dashboard                             |
+| `GET`  | `/health`                          | Server health check                       |
+| `GET`  | `/api/computers`                   | List all agents and their current metrics |
+| `GET`  | `/api/history/{hostname}?hours=24` | Metric history for a specific agent       |
+| `GET`  | `/api/notifications`               | List all alerts                           |
+| `GET`  | `/api/settings`                    | Read current server configuration         |
+| `POST` | `/api/settings`                    | Update server configuration               |
+| `POST` | `/api/settings/reset`              | Restore configuration from backup         |
+| `WS`   | `/ws`                              | WebSocket for web clients (browser)       |
+| `WS`   | `/ws/agent`                        | WebSocket for agents                      |
 
 ---
 
@@ -219,6 +244,7 @@ vigil-agent/
 ### Example: 1 server + 20 PCs
 
 **Step 1 — Central Server**
+
 1. Choose a machine that stays on 24/7
 2. Run `vigil-server.exe` and complete the setup
 3. Note the displayed IP (e.g. `192.168.1.10`)
@@ -232,12 +258,14 @@ vigil-agent/
 **Step 2 — Agents**
 
 On each PC to monitor:
+
 1. Copy and extract `vigil-agent-windows.zip`
 2. Run `vigil-agent.exe` as Administrator
 3. Enter the server IP: `192.168.1.10`
 4. The PC appears immediately in the dashboard
 
 **Step 3 — Verification**
+
 - Open `http://192.168.1.10:5000`
 - All PCs appear with their icons
 - Click **Details** on any card to view graphs and processes
@@ -247,11 +275,13 @@ On each PC to monitor:
 ## 📋 Requirements
 
 ### Binaries (no installation needed)
+
 - Windows 10/11 or Linux (x86_64)
 - Network connectivity between machines
 - Administrator/root privileges
 
 ### From source
+
 - Python 3.11+
 - See `server/requirements.txt` and `agent/requirements.txt`
 

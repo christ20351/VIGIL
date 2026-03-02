@@ -6,7 +6,9 @@ Collecte les métriques système et les envoie au serveur central via WebSocket
 import asyncio
 import json
 import os
+import secrets
 import socket
+import string
 import sys
 import threading
 import time
@@ -27,10 +29,8 @@ def _get_config_path() -> str:
     stocker de données persistantes dedans.
     """
     if getattr(sys, "frozen", False):
-        # Binaire PyInstaller → dossier du .exe
         base = os.path.dirname(sys.executable)
     else:
-        # Dev classique → dossier de agent.py
         base = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base, "agent_config.json")
 
@@ -110,6 +110,19 @@ def _ask(label, default=None, cast=str, validate=None, secret=False):
         return value
 
 
+def _ask_bool(label, default=False) -> bool:
+    hint = "O/n" if default else "o/N"
+    try:
+        raw = input(f"  {label} ({hint}) : ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return default
+    if raw in ("o", "oui", "y", "yes", "1"):
+        return True
+    if raw in ("n", "non", "no", "0"):
+        return False
+    return default
+
+
 def _interactive_setup(existing: dict = None) -> dict:
     """
     Configuration interactive dans le terminal.
@@ -125,6 +138,9 @@ def _interactive_setup(existing: dict = None) -> dict:
             f"    Serveur    : {existing.get('SERVER_IP')}:{existing.get('SERVER_PORT')}"
         )
         print(f"    Intervalle : {existing.get('UPDATE_INTERVAL', 1)}s")
+        print(
+            f"    SMART      : {'activé' if existing.get('HDD_SMART_ENABLED', True) else 'désactivé'}"
+        )
         print()
         try:
             rep = input("  Reconfigurer ? (o/N) : ").strip().lower()
@@ -160,11 +176,34 @@ def _interactive_setup(existing: dict = None) -> dict:
     )
 
     print()
+    print("  [ Monitoring S.M.A.R.T. ]")
+    smart_enabled = _ask_bool(
+        "Activer la surveillance S.M.A.R.T. des disques ?",
+        default=existing.get("HDD_SMART_ENABLED", True) if existing else True,
+    )
+    temp_warning = _ask(
+        "Seuil température WARNING (°C)",
+        default=existing.get("HDD_TEMP_WARNING", 45) if existing else 45,
+        cast=int,
+        validate=lambda v: 1 <= v <= 100,
+    )
+    temp_critical = _ask(
+        "Seuil température CRITICAL (°C)",
+        default=existing.get("HDD_TEMP_CRITICAL", 55) if existing else 55,
+        cast=int,
+        validate=lambda v: 1 <= v <= 100,
+    )
+
+    print()
     print("  ┌────────────────────────────────────────────────────┐")
     print("  │                   Récapitulatif                    │")
     print("  └────────────────────────────────────────────────────┘")
     print(f"    Serveur cible : ws://{server_ip}:{server_port}/ws/agent")
     print(f"    Intervalle    : {interval}s")
+    print(f"    SMART         : {'activé' if smart_enabled else 'désactivé'}")
+    if smart_enabled:
+        print(f"    Temp WARNING  : {temp_warning}°C")
+        print(f"    Temp CRITICAL : {temp_critical}°C")
     print()
 
     try:
@@ -181,6 +220,9 @@ def _interactive_setup(existing: dict = None) -> dict:
         "UPDATE_INTERVAL": interval,
         "ENABLE_AUTH": existing.get("ENABLE_AUTH", False) if existing else False,
         "AUTH_TOKEN": existing.get("AUTH_TOKEN", None) if existing else None,
+        "HDD_SMART_ENABLED": smart_enabled,
+        "HDD_TEMP_WARNING": temp_warning,
+        "HDD_TEMP_CRITICAL": temp_critical,
     }
     _save_json_config(cfg)
     print(f"\n  [OK] Configuration sauvegardée → {CONFIG_FILE}")
@@ -205,6 +247,9 @@ if __name__ == "__main__":
     UPDATE_INTERVAL = json_cfg.get("UPDATE_INTERVAL", 1)
     ENABLE_AUTH = json_cfg.get("ENABLE_AUTH", False)
     AUTH_TOKEN = json_cfg.get("AUTH_TOKEN", None)
+    HDD_SMART_ENABLED = json_cfg.get("HDD_SMART_ENABLED", True)
+    HDD_TEMP_WARNING = json_cfg.get("HDD_TEMP_WARNING", 45)
+    HDD_TEMP_CRITICAL = json_cfg.get("HDD_TEMP_CRITICAL", 55)
 
     # Fallback token depuis server/config.yaml si pas dans agent_config.json
     if not AUTH_TOKEN:
@@ -224,6 +269,7 @@ if __name__ == "__main__":
         except Exception:
             pass
 
+    from smart_monitor import check_smart_alerts, get_all_disks_smart
     from system_info import get_system_info
 
     HOSTNAME = socket.gethostname()
@@ -253,6 +299,7 @@ if __name__ == "__main__":
     print(f"💻 OS détecté       : {sys.platform}")
     print(f"🖥️  IP locale        : {LOCAL_IP}")
     print(f"📁 Config chargée   : {CONFIG_FILE}")
+    print(f"💾 SMART monitoring  : {'activé' if HDD_SMART_ENABLED else 'désactivé'}")
     print("=" * 70)
     print()
 
@@ -280,7 +327,35 @@ if __name__ == "__main__":
 
                     while True:
                         try:
+                            # ── Métriques système ──────────────────────────
                             data = get_system_info()
+
+                            # ── Données S.M.A.R.T. ────────────────────────
+                            smart_payload = {
+                                "available": False,
+                                "disks": [],
+                                "alerts": [],
+                            }
+                            if HDD_SMART_ENABLED:
+                                try:
+                                    disks = get_all_disks_smart()
+                                    alerts = check_smart_alerts(
+                                        disks,
+                                        temp_warning=HDD_TEMP_WARNING,
+                                        temp_critical=HDD_TEMP_CRITICAL,
+                                    )
+                                    smart_payload = {
+                                        "available": bool(disks),
+                                        "disks": disks,
+                                        "alerts": alerts,
+                                        "disks_count": len(disks),
+                                    }
+                                except Exception as e:
+                                    print(f"⚠️  Erreur collecte SMART: {e}")
+
+                            # ── Envoi au serveur ───────────────────────────
+                            # // debug: show SMART payload before send
+                            print(f"[DEBUG] smart_payload being sent: {smart_payload}")
                             await websocket.send(
                                 json.dumps(
                                     {
@@ -288,20 +363,36 @@ if __name__ == "__main__":
                                         "hostname": HOSTNAME,
                                         "timestamp": datetime.now().isoformat(),
                                         "data": data,
+                                        "smart": smart_payload,
                                     }
                                 )
                             )
 
+                            # ── Log console ────────────────────────────────
                             tcp_count = data["protocols"]["tcp"]["established"]
                             proc_count = len(data["processes"])
                             net = data["network"]
+
+                            smart_log = ""
+                            if HDD_SMART_ENABLED and smart_payload.get("available"):
+                                disks_summary = " ".join(
+                                    f"{d['disk']}:{d['health']}({d['temperature']}°C)"
+                                    for d in smart_payload.get("disks", [])
+                                    if d.get("available")
+                                )
+                                smart_log = (
+                                    f" | 💾 {disks_summary}" if disks_summary else ""
+                                )
+
                             print(
                                 f"✓ CPU={data['cpu_percent']:.1f}% | "
                                 f"RAM={data['memory']['percent']:.1f}% | "
                                 f"↓{net['bytes_recv_per_sec']/1024:.1f}KB/s | "
                                 f"↑{net['bytes_sent_per_sec']/1024:.1f}KB/s | "
                                 f"TCP={tcp_count} | Proc={proc_count}"
+                                f"{smart_log}"
                             )
+
                         except json.JSONDecodeError as e:
                             print(f"⚠️  Erreur JSON: {e}")
                         except Exception as e:

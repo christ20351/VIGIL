@@ -5,7 +5,6 @@ import sys
 import threading
 from datetime import datetime
 from pathlib import Path
-
 import uvicorn
 
 # ================================================================
@@ -108,6 +107,12 @@ try:
     threading.Thread(target=_pruner, daemon=True).start()
 except Exception:
     pass
+
+# Démarrer la surveillance automatique de la configuration
+try:
+    config.start_config_watcher(check_interval=2)
+except Exception as e:
+    print(f"[WARNING] Could not start config watcher: {e}")
 
 # Setup routes & WebSocket
 setup_routes(app, templates, computers_data)
