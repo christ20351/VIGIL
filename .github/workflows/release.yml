@@ -25,48 +25,64 @@ jobs:
           pip install -r agent/requirements.txt  || true
           pip install -r server/requirements.txt || true
 
+      - name: Make smartctl executable (Linux)
+        run: |
+          if [ -f agent/bin/linux/smartctl ]; then
+            chmod +x agent/bin/linux/smartctl
+          fi
+
       - name: Build Agent (Linux)
         working-directory: agent
         run: |
-          pyinstaller --onefile --name vigil-agent agent.py
-          mv dist/vigil-agent ../vigil-agent-linux
+          pyinstaller \
+            --onedir \
+            --name vigil-agent \
+            --add-data "bin/linux/smartctl:bin/linux" \
+            agent.py
 
       - name: Build Server (Linux)
         working-directory: server
         run: |
-          pyinstaller --onefile --name vigil-server server.py
-          mv dist/vigil-server ../vigil-server-linux
+          pyinstaller \
+            --onedir \
+            --name vigil-server \
+            --add-data "static:static" \
+            --add-data "templates:templates" \
+            --hidden-import uvicorn.logging \
+            --hidden-import uvicorn.loops \
+            --hidden-import uvicorn.loops.auto \
+            --hidden-import uvicorn.protocols \
+            --hidden-import uvicorn.protocols.http \
+            --hidden-import uvicorn.protocols.http.auto \
+            --hidden-import uvicorn.protocols.websockets \
+            --hidden-import uvicorn.protocols.websockets.auto \
+            --hidden-import uvicorn.lifespan \
+            --hidden-import uvicorn.lifespan.on \
+            server.py
 
-      # Le serveur a besoin de static/ et templates/ à côté du binaire
+      - name: Package agent (Linux)
+        run: |
+          mkdir -p release-linux/agent
+          cp -r agent/dist/vigil-agent/* release-linux/agent/
+          echo "Lancez : sudo ./vigil-agent depuis ce dossier" > release-linux/agent/README.txt
+          cd release-linux
+          tar -czf ../vigil-agent-linux.tar.gz agent/
+
       - name: Package server (Linux)
         run: |
           mkdir -p release-linux/server
-          cp vigil-server-linux          release-linux/server/vigil-server
-          cp -r server/static            release-linux/server/static
-          cp -r server/templates         release-linux/server/templates
-          # include linux smartctl binary if packaged
-          if [ -f agent/bin/linux/smartctl ]; then
-            cp agent/bin/linux/smartctl    release-linux/server/
-            cp agent/bin/linux/smartctl    release-linux/agent/
-          fi
-          # config.yaml sera généré automatiquement au 1er lancement
-          echo "Lancez ./vigil-server depuis ce dossier" > release-linux/server/README.txt
-
-          mkdir -p release-linux/agent
-          cp vigil-agent-linux           release-linux/agent/vigil-agent
-          echo "Lancez ./vigil-agent depuis ce dossier" > release-linux/agent/README.txt
-
+          cp -r server/dist/vigil-server/* release-linux/server/
+          echo "Lancez : ./vigil-server depuis ce dossier" > release-linux/server/README.txt
           cd release-linux
           tar -czf ../vigil-server-linux.tar.gz server/
-          tar -czf ../vigil-agent-linux.tar.gz  agent/
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
           name: linux-binaries
           path: |
-            vigil-server-linux.tar.gz
             vigil-agent-linux.tar.gz
+            vigil-server-linux.tar.gz
 
   # ============================================================
   #  BUILD WINDOWS
@@ -89,40 +105,54 @@ jobs:
 
       - name: Build Agent (Windows)
         working-directory: agent
-        run: pyinstaller --onefile --name vigil-agent agent.py
+        run: |
+          pyinstaller `
+            --onedir `
+            --name vigil-agent `
+            --add-data "bin/windows/smartctl.exe;bin/windows" `
+            agent.py
 
       - name: Build Server (Windows)
         working-directory: server
-        run: pyinstaller --onefile --name vigil-server server.py
+        run: |
+          pyinstaller `
+            --onedir `
+            --name vigil-server `
+            --add-data "static;static" `
+            --add-data "templates;templates" `
+            --hidden-import uvicorn.logging `
+            --hidden-import uvicorn.loops `
+            --hidden-import uvicorn.loops.auto `
+            --hidden-import uvicorn.protocols `
+            --hidden-import uvicorn.protocols.http `
+            --hidden-import uvicorn.protocols.http.auto `
+            --hidden-import uvicorn.protocols.websockets `
+            --hidden-import uvicorn.protocols.websockets.auto `
+            --hidden-import uvicorn.lifespan `
+            --hidden-import uvicorn.lifespan.on `
+            server.py
 
-      # Le serveur a besoin de static/ et templates/ à côté du .exe
+      - name: Package agent (Windows)
+        run: |
+          New-Item -ItemType Directory -Force -Path release-win/agent
+          Copy-Item -Recurse agent/dist/vigil-agent/* release-win/agent/
+          Set-Content release-win/agent/README.txt "Executer vigil-agent.exe en tant qu'Administrateur"
+          Compress-Archive -Path release-win/agent/* -DestinationPath vigil-agent-windows.zip
+
       - name: Package server (Windows)
         run: |
           New-Item -ItemType Directory -Force -Path release-win/server
-          Copy-Item server/dist/vigil-server.exe  release-win/server/
-          Copy-Item -Recurse server/static         release-win/server/static
-          Copy-Item -Recurse server/templates      release-win/server/templates
-          # include windows smartctl if present
-          if (Test-Path agent\\bin\\windows\\smartctl.exe) {
-            Copy-Item agent\\bin\\windows\\smartctl.exe release-win/server/
-            Copy-Item agent\\bin\\windows\\smartctl.exe release-win/agent/
-          }
-          Set-Content release-win/server/README.txt "Lancez vigil-server.exe depuis ce dossier"
-
-          New-Item -ItemType Directory -Force -Path release-win/agent
-          Copy-Item agent/dist/vigil-agent.exe     release-win/agent/
-          Set-Content release-win/agent/README.txt "Lancez vigil-agent.exe depuis ce dossier"
-
+          Copy-Item -Recurse server/dist/vigil-server/* release-win/server/
+          Set-Content release-win/server/README.txt "Executer vigil-server.exe depuis ce dossier"
           Compress-Archive -Path release-win/server/* -DestinationPath vigil-server-windows.zip
-          Compress-Archive -Path release-win/agent/*  -DestinationPath vigil-agent-windows.zip
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-binaries
           path: |
-            vigil-server-windows.zip
             vigil-agent-windows.zip
+            vigil-server-windows.zip
 
   # ============================================================
   #  CRÉATION DE LA RELEASE
@@ -148,31 +178,30 @@ jobs:
             | Fichier | OS | Contenu |
             |---|---|---|
             | `vigil-server-windows.zip` | Windows | `vigil-server.exe` + `static/` + `templates/` |
-            | `vigil-agent-windows.zip`  | Windows | `vigil-agent.exe` + `smartctl.exe` (if available) |
+            | `vigil-agent-windows.zip`  | Windows | `vigil-agent.exe` + `smartctl.exe` bundlé |
             | `vigil-server-linux.tar.gz` | Linux  | `vigil-server` + `static/` + `templates/` |
-            | `vigil-agent-linux.tar.gz`  | Linux  | `vigil-agent` + `smartctl` (if available) |
+            | `vigil-agent-linux.tar.gz`  | Linux  | `vigil-agent` + `smartctl` bundlé |
 
-            ### 🚀 Utilisation
+            ### 🚀 Utilisation rapide
 
             **Serveur**
-            1. Extraire l'archive `vigil-server-*` dans un dossier
+            1. Extraire l'archive `vigil-server-*`
             2. Lancer `vigil-server.exe` (Windows) ou `./vigil-server` (Linux)
-            3. Un `config.yaml` est généré automatiquement au 1er lancement
-            4. Éditer `config.yaml` si besoin, puis relancer
+            3. Suivre le menu de configuration au démarrage
+            4. Accéder au dashboard : `http://localhost:5000`
 
             **Agent**
-            1. Extraire l'archive `vigil-agent-*` dans un dossier
-            2. Lancer `vigil-agent.exe` (Windows) ou `./vigil-agent` (Linux)
-            3. Le menu de configuration s'affiche au 1er lancement
-            4. La config est sauvegardée dans `agent_config.json`
+            1. Extraire l'archive `vigil-agent-*`
+            2. Lancer `vigil-agent.exe` **en tant qu'Administrateur** (Windows)
+               ou `sudo ./vigil-agent` (Linux)
+            3. Suivre le menu de configuration au 1er lancement
 
-            > ⚠️ Windows : exécuter en tant qu'Administrateur
-            > ⚠️ Linux : `sudo ./vigil-agent` pour accès réseau complet
+            > ⚠️ Les droits administrateur/root sont requis pour le monitoring S.M.A.R.T. et l'accès réseau complet.
 
           files: |
-            linux-binaries/vigil-server-linux.tar.gz
             linux-binaries/vigil-agent-linux.tar.gz
-            windows-binaries/vigil-server-windows.zip
+            linux-binaries/vigil-server-linux.tar.gz
             windows-binaries/vigil-agent-windows.zip
+            windows-binaries/vigil-server-windows.zip
           draft: false
           prerelease: false
