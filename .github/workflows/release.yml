@@ -3,7 +3,7 @@ name: Build & Release VIGIL
 on:
   push:
     tags:
-      - "v*" # déclenché sur v1.0, v2.0, etc.
+      - "v*"
 
 jobs:
   # ============================================================
@@ -64,17 +64,15 @@ jobs:
         run: |
           mkdir -p release-linux/agent
           cp -r agent/dist/vigil-agent/* release-linux/agent/
-          echo "Lancez : sudo ./vigil-agent depuis ce dossier" > release-linux/agent/README.txt
-          cd release-linux
-          tar -czf ../vigil-agent-linux.tar.gz agent/
+          echo "Run: sudo ./vigil-agent from this folder" > release-linux/agent/README.txt
+          tar -czf vigil-agent-linux.tar.gz -C release-linux agent/
 
       - name: Package server (Linux)
         run: |
           mkdir -p release-linux/server
           cp -r server/dist/vigil-server/* release-linux/server/
-          echo "Lancez : ./vigil-server depuis ce dossier" > release-linux/server/README.txt
-          cd release-linux
-          tar -czf ../vigil-server-linux.tar.gz server/
+          echo "Run: ./vigil-server from this folder" > release-linux/server/README.txt
+          tar -czf vigil-server-linux.tar.gz -C release-linux server/
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
@@ -134,17 +132,17 @@ jobs:
 
       - name: Package agent (Windows)
         run: |
-          New-Item -ItemType Directory -Force -Path release-win/agent
-          Copy-Item -Recurse agent/dist/vigil-agent/* release-win/agent/
-          Set-Content release-win/agent/README.txt "Executer vigil-agent.exe en tant qu'Administrateur"
-          Compress-Archive -Path release-win/agent/* -DestinationPath vigil-agent-windows.zip
+          New-Item -ItemType Directory -Force -Path release-win\agent
+          Copy-Item -Recurse agent\dist\vigil-agent\* release-win\agent\
+          Set-Content release-win\agent\README.txt "Run vigil-agent.exe as Administrator"
+          Compress-Archive -Path release-win\agent\* -DestinationPath vigil-agent-windows.zip
 
       - name: Package server (Windows)
         run: |
-          New-Item -ItemType Directory -Force -Path release-win/server
-          Copy-Item -Recurse server/dist/vigil-server/* release-win/server/
-          Set-Content release-win/server/README.txt "Executer vigil-server.exe depuis ce dossier"
-          Compress-Archive -Path release-win/server/* -DestinationPath vigil-server-windows.zip
+          New-Item -ItemType Directory -Force -Path release-win\server
+          Copy-Item -Recurse server\dist\vigil-server\* release-win\server\
+          Set-Content release-win\server\README.txt "Run vigil-server.exe from this folder"
+          Compress-Archive -Path release-win\server\* -DestinationPath vigil-server-windows.zip
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -173,30 +171,29 @@ jobs:
           body: |
             ## 🖥️ VIGIL ${{ github.ref_name }}
 
-            ### 📦 Téléchargements
+            ### 📦 Downloads
 
-            | Fichier | OS | Contenu |
+            | File | OS | Contents |
             |---|---|---|
             | `vigil-server-windows.zip` | Windows | `vigil-server.exe` + `static/` + `templates/` |
-            | `vigil-agent-windows.zip`  | Windows | `vigil-agent.exe` + `smartctl.exe` bundlé |
+            | `vigil-agent-windows.zip`  | Windows | `vigil-agent.exe` + bundled `smartctl.exe` |
             | `vigil-server-linux.tar.gz` | Linux  | `vigil-server` + `static/` + `templates/` |
-            | `vigil-agent-linux.tar.gz`  | Linux  | `vigil-agent` + `smartctl` bundlé |
+            | `vigil-agent-linux.tar.gz`  | Linux  | `vigil-agent` + bundled `smartctl` |
 
-            ### 🚀 Utilisation rapide
+            ### 🚀 Quick Start
 
-            **Serveur**
-            1. Extraire l'archive `vigil-server-*`
-            2. Lancer `vigil-server.exe` (Windows) ou `./vigil-server` (Linux)
-            3. Suivre le menu de configuration au démarrage
-            4. Accéder au dashboard : `http://localhost:5000`
+            **Server**
+            1. Extract `vigil-server-*`
+            2. Run `vigil-server.exe` (Windows) or `./vigil-server` (Linux)
+            3. Follow the configuration prompt on first launch
+            4. Open the dashboard at `http://localhost:5000`
 
             **Agent**
-            1. Extraire l'archive `vigil-agent-*`
-            2. Lancer `vigil-agent.exe` **en tant qu'Administrateur** (Windows)
-               ou `sudo ./vigil-agent` (Linux)
-            3. Suivre le menu de configuration au 1er lancement
+            1. Extract `vigil-agent-*`
+            2. Run `vigil-agent.exe` **as Administrator** (Windows) or `sudo ./vigil-agent` (Linux)
+            3. Follow the configuration prompt on first launch
 
-            > ⚠️ Les droits administrateur/root sont requis pour le monitoring S.M.A.R.T. et l'accès réseau complet.
+            > ⚠️ Administrator/root privileges are required for S.M.A.R.T. monitoring and full network access.
 
           files: |
             linux-binaries/vigil-agent-linux.tar.gz
