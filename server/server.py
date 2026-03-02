@@ -13,14 +13,9 @@ import uvicorn
 
 
 def get_base_dir() -> Path:
-    """
-    Retourne le dossier de base selon le contexte :
-    - Binaire PyInstaller  → dossier du .exe  (os.path.dirname(sys.executable))
-    - Script Python normal → dossier de server.py
-    """
     if getattr(sys, "frozen", False):
-        # on tourne dans un binaire PyInstaller
-        return Path(sys.executable).parent
+        # Avec --onedir, les données sont dans _internal/
+        return Path(sys._MEIPASS)
     return Path(__file__).parent
 
 
