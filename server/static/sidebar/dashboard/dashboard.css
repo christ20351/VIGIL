@@ -1,0 +1,7 @@
+
+.dashboard-welcome {
+  padding: 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 1.1rem;
+}

@@ -1,0 +1,204 @@
+name: Build & Release VIGIL
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  # ============================================================
+  #  BUILD LINUX
+  # ============================================================
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller
+          pip install -r agent/requirements.txt  || true
+          pip install -r server/requirements.txt || true
+
+      - name: Make smartctl executable (Linux)
+        run: |
+          if [ -f agent/bin/linux/smartctl ]; then
+            chmod +x agent/bin/linux/smartctl
+          fi
+
+      - name: Build Agent (Linux)
+        working-directory: agent
+        run: |
+          pyinstaller \
+            --onedir \
+            --name vigil-agent \
+            --add-data "bin/linux/smartctl:bin/linux" \
+            agent.py
+
+      - name: Build Server (Linux)
+        working-directory: server
+        run: |
+          pyinstaller \
+            --onedir \
+            --name vigil-server \
+            --add-data "static:static" \
+            --add-data "templates:templates" \
+            --hidden-import uvicorn.logging \
+            --hidden-import uvicorn.loops \
+            --hidden-import uvicorn.loops.auto \
+            --hidden-import uvicorn.protocols \
+            --hidden-import uvicorn.protocols.http \
+            --hidden-import uvicorn.protocols.http.auto \
+            --hidden-import uvicorn.protocols.websockets \
+            --hidden-import uvicorn.protocols.websockets.auto \
+            --hidden-import uvicorn.lifespan \
+            --hidden-import uvicorn.lifespan.on \
+            server.py
+
+      - name: Package agent (Linux)
+        run: |
+          mkdir -p release-linux/agent
+          cp -r agent/dist/vigil-agent/* release-linux/agent/
+          echo "Run: sudo ./vigil-agent from this folder" > release-linux/agent/README.txt
+          tar -czf vigil-agent-linux.tar.gz -C release-linux agent/
+
+      - name: Package server (Linux)
+        run: |
+          mkdir -p release-linux/server
+          cp -r server/dist/vigil-server/* release-linux/server/
+          echo "Run: ./vigil-server from this folder" > release-linux/server/README.txt
+          tar -czf vigil-server-linux.tar.gz -C release-linux server/
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binaries
+          path: |
+            vigil-agent-linux.tar.gz
+            vigil-server-linux.tar.gz
+
+  # ============================================================
+  #  BUILD WINDOWS
+  # ============================================================
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller
+          pip install -r agent/requirements.txt
+          pip install -r server/requirements.txt
+
+      - name: Build Agent (Windows)
+        working-directory: agent
+        run: |
+          pyinstaller `
+            --onedir `
+            --name vigil-agent `
+            --add-data "bin/windows/smartctl.exe;bin/windows" `
+            agent.py
+
+      - name: Build Server (Windows)
+        working-directory: server
+        run: |
+          pyinstaller `
+            --onedir `
+            --name vigil-server `
+            --add-data "static;static" `
+            --add-data "templates;templates" `
+            --hidden-import uvicorn.logging `
+            --hidden-import uvicorn.loops `
+            --hidden-import uvicorn.loops.auto `
+            --hidden-import uvicorn.protocols `
+            --hidden-import uvicorn.protocols.http `
+            --hidden-import uvicorn.protocols.http.auto `
+            --hidden-import uvicorn.protocols.websockets `
+            --hidden-import uvicorn.protocols.websockets.auto `
+            --hidden-import uvicorn.lifespan `
+            --hidden-import uvicorn.lifespan.on `
+            server.py
+
+      - name: Package agent (Windows)
+        run: |
+          New-Item -ItemType Directory -Force -Path release-win\agent
+          Copy-Item -Recurse agent\dist\vigil-agent\* release-win\agent\
+          Set-Content release-win\agent\README.txt "Run vigil-agent.exe as Administrator"
+          Compress-Archive -Path release-win\agent\* -DestinationPath vigil-agent-windows.zip
+
+      - name: Package server (Windows)
+        run: |
+          New-Item -ItemType Directory -Force -Path release-win\server
+          Copy-Item -Recurse server\dist\vigil-server\* release-win\server\
+          Set-Content release-win\server\README.txt "Run vigil-server.exe from this folder"
+          Compress-Archive -Path release-win\server\* -DestinationPath vigil-server-windows.zip
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: |
+            vigil-agent-windows.zip
+            vigil-server-windows.zip
+
+  # ============================================================
+  #  CRÉATION DE LA RELEASE
+  # ============================================================
+  create-release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "VIGIL ${{ github.ref_name }}"
+          body: |
+            ## 🖥️ VIGIL ${{ github.ref_name }}
+
+            ### 📦 Downloads
+
+            | File | OS | Contents |
+            |---|---|---|
+            | `vigil-server-windows.zip` | Windows | `vigil-server.exe` + `static/` + `templates/` |
+            | `vigil-agent-windows.zip`  | Windows | `vigil-agent.exe` + bundled `smartctl.exe` |
+            | `vigil-server-linux.tar.gz` | Linux  | `vigil-server` + `static/` + `templates/` |
+            | `vigil-agent-linux.tar.gz`  | Linux  | `vigil-agent` + bundled `smartctl` |
+
+            ### 🚀 Quick Start
+
+            **Server**
+            1. Extract `vigil-server-*`
+            2. Run `vigil-server.exe` (Windows) or `./vigil-server` (Linux)
+            3. Follow the configuration prompt on first launch
+            4. Open the dashboard at `http://localhost:5000`
+
+            **Agent**
+            1. Extract `vigil-agent-*`
+            2. Run `vigil-agent.exe` **as Administrator** (Windows) or `sudo ./vigil-agent` (Linux)
+            3. Follow the configuration prompt on first launch
+
+            > ⚠️ Administrator/root privileges are required for S.M.A.R.T. monitoring and full network access.
+
+          files: |
+            linux-binaries/vigil-agent-linux.tar.gz
+            linux-binaries/vigil-server-linux.tar.gz
+            windows-binaries/vigil-agent-windows.zip
+            windows-binaries/vigil-server-windows.zip
+          draft: false
+          prerelease: false

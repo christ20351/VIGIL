@@ -3,258 +3,306 @@
 
 ## VIGIL est un Système de Monitoring Centralisé 
 
-
-[![Python Version](https://img.shields.io/badge/python-3.7%2B-blue)](https://www.python.org/downloads/)
+[![Python Version](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Version](https://img.shields.io/badge/version-2.0-orange)](CHANGELOG.md)
 
-Un système de monitoring puissant et simple pour surveiller plusieurs ordinateurs depuis une interface web centrale.
+A powerful and lightweight real-time monitoring system to supervise multiple computers from a central web interface — no cloud, no subscription, fully self-hosted.
 
 ![Dashboard](docs/screenshots/dashboard.png)
-
----
-
-## ✨ Fonctionnalités v2.0
-
-### Monitoring Système
-
-- 📊 **Métriques en temps réel** : CPU, RAM, Disque
-- 🌐 **Trafic réseau** : Upload/Download avec vitesse instantanée
-- 💻 **Vue détaillée** avec graphiques interactifs
-
-### Surveillance Réseau Avancée
-
-- 📡 **Protocoles réseau** : TCP (ESTABLISHED, LISTEN, TIME_WAIT, CLOSE_WAIT) et UDP
-- 🔗 **Connexions actives** : Liste détaillée avec IP locales/distantes, états, PID
-- 🌐 **Interfaces réseau** : IPv4, IPv6, vitesse, état actif/inactif
-
-### Processus
-
-- ⚙️ **Top 30 processus** par utilisation CPU
-- 📈 **Détails complets** : PID, nom, CPU%, RAM%, état, utilisateur
-- 🎯 **Visualisation** avec barres de progression
-
-### Interface Moderne
-
-- 🎨 **Design moderne** avec icônes de PC personnalisées
-- 📊 **Graphiques interactifs** (Chart.js) : CPU, RAM, réseau, disque
-- 📱 **Responsive** : s'adapte à tous les écrans
-- 🎭 **Icônes distinctives** par PC avec badges de statut (hors ligne/ en ligne)
-- 🕒 **Onglet Historique** pour visualiser les 24 h+
-- ⚡ **Animations fluides** et transitions
 
 ---
 
 ## 🎯 Architecture
 
 ```
-┌─────────────┐      ┌─────────────┐      ┌─────────────┐
-│   Agent     │─────▶│   Serveur   │◀─────│   Agent     │
-│  (PC 1)     │  2s  │   Central   │  2s  │  (PC 2)     │
-└─────────────┘      └─────────────┘      └─────────────┘
-                            │
-                            ▼
-                     Interface Web
-                   http://IP:5000
+┌─────────────┐        ┌─────────────────┐        ┌─────────────┐
+│   Agent     │──WS──▶ │  Central Server  │ ◀──WS──│   Agent     │
+│  (PC 1)     │        │   (FastAPI)      │        │  (PC 2)     │
+└─────────────┘        └─────────────────┘        └─────────────┘
+                                │
+                                ▼
+                         Web Interface
+                       http://SERVER_IP:5000
 ```
 
----
-
-## 📋 Prérequis
-
-- Python 3.13.12 ou supérieur
-- Connexion réseau entre les machines
-- Ports : 5000 (serveur)
+- **Agent** : installed on each machine to monitor. Collects metrics and sends them to the server via WebSocket every second.
+- **Server** : central hub that receives all metrics, stores history in SQLite, and serves the web dashboard.
+- **Dashboard** : real-time web interface accessible from any browser on the network.
 
 ---
 
-## 🚀 Installation Rapide
+## ✨ Features
 
-### Option 1 : Script automatique (Recommandé)
+### 📊 Real-time Monitoring
 
-**Linux/Mac :**
+- CPU, RAM, Disk usage with live graphs
+- Network traffic: upload/download speed
+- Top 30 processes by CPU usage (PID, name, CPU%, RAM%, state, user)
+- Active network connections (TCP/UDP, local/remote IPs, states)
+- Network interfaces: IPv4, IPv6, speed, active/inactive state
+
+### 🖥️ Modern Interface
+
+- Responsive web dashboard (Chart.js)
+- Distinctive PC icons with online/offline status badges
+- History tab: visualize last 24h+ of metrics
+- Notifications panel: alerts organized by agent and day
+- Activity sidebar: browse history per agent (1h / 4h / 24h / 7d)
+- Smooth animations and transitions
+
+### 🔔 Configurable Alerts
+
+- CPU alert with duration threshold (e.g. CPU > 90% for more than 25s)
+- Instant RAM and Disk alerts
+- Offline agent detection with red badge and notification
+
+### � S.M.A.R.T. Disk Health Monitoring
+
+> ⚠️ **Administrator privileges are required** – SMART polling only works when the program
+> is started with elevated rights (Windows Admin / Linux root).
+
+- Real-time disk health status (PASSED/FAILED) for each drive
+- Reads and displays individual SMART attributes (reallocated sectors, spin-up time, etc.)
+- Temperature graphs with per-disk thresholds and color coding
+- Automatic alerts when any SMART attribute crosses a safety limit
+- Periodic background polling and history retention (30 days by default)
+- Supports NVMe and SATA/ATA disks via `smartctl` integration
+- **See [FEATURES-SMART.md](FEATURES-SMART.md) for complete details and configuration options**
+
+### �🔐 Optional Authentication
+
+- Token-based session authentication
+- Login page with first-run account creation
+- Logout button in dashboard topbar
+
+### ⚙️ Settings
+
+- Edit all server parameters from the web interface
+- Automatic backup before each save
+- One-click reset to previous configuration
+
+---
+
+## 🚀 Quick Start
+
+### Option 1 — Pre-built Binaries (Recommended, no Python required)
+
+Download the latest release from the [Releases page](https://github.com/christ20351/VIGIL/releases).
+
+| File                        | OS      | Component        |
+| --------------------------- | ------- | ---------------- |
+| `vigil-server-windows.zip`  | Windows | Central Server   |
+| `vigil-agent-windows.zip`   | Windows | Monitoring Agent |
+| `vigil-server-linux.tar.gz` | Linux   | Central Server   |
+| `vigil-agent-linux.tar.gz`  | Linux   | Monitoring Agent |
+
+**Server setup:**
+
+1. Extract `vigil-server-*` to a folder
+2. Run `vigil-server.exe` (Windows) or `./vigil-server` (Linux) **as Administrator**
+3. An interactive setup menu appears on first launch — configure host, port, auth, and alert thresholds
+4. Open your browser at `http://localhost:5000` (or the configured port)
+
+**Agent setup:**
+
+1. Extract `vigil-agent-*` to a folder
+2. Run `vigil-agent.exe` (Windows) or `./vigil-agent` (Linux) **as Administrator**
+3. Enter the server IP and port — configuration is saved to `agent_config.json`
+4. The agent connects automatically and appears in the dashboard
+
+> ⚠️ **Windows**: if SmartScreen blocks the exe → "More info" → "Run anyway"
+> ⚠️ **Linux**: use `sudo ./vigil-agent` for full network access
+
+---
+
+### Option 2 — From Source (requires Python 3.11+)
 
 ```bash
 git clone https://github.com/christ20351/VIGIL.git
 cd VIGIL
+```
+
+**Windows:**
+
+```cmd
+install.bat
+```
+
+**Linux/Mac:**
+
+```bash
 chmod +x install.sh
 ./install.sh
 ```
 
-**Windows :**
+The install script will:
 
-```cmd
-git clone https://github.com/christ20351/VIGIL.git
-cd VIGIL
-install.bat
+- Ask whether to install the **Server** or the **Agent**
+- Detect `python`/`python3` and create a local virtual environment (`.venv`)
+- Automatically upgrade bundled `pip` and install Python dependencies inside the venv
+- Handle Debian/Ubuntu "externally‑managed" environments by using the venv
+- Create a default `config.yaml` and prompt for host, port, and auth
+- Offer to launch the component immediately
+- Provide clear error messages and hints when something goes wrong
+
+**Manual start after installation:**
+
+```bash
+# Server
+cd server
+python server.py
+
+# Agent (Linux)
+cd agent
+sudo python agent.py
+
+# Agent (Windows — run as Administrator)
+cd agent
+python agent.py
 ```
-
-### Option 2 : Installation manuelle
-
-1. **Cloner le projet**
-
-   ```bash
-   git clone https://github.com/christ20351/VIGIL.git
-   cd VIGIL
-   ```
-
-2. **Installer les dépendances**
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Configurer**
-
-   ```bash
-   cp config.py server/config.py  # Pour le serveur
-   cp config.py agent/config.py   # Pour les agents
-   ```
-
-4. **Modifier la configuration**
-   - Éditez `agent/config.py`
-   - Changez `SERVER_IP = "x.x.x.x"` avec l'IP de votre serveur
-
-5. **Lancer**
-
-   **Serveur :**
-
-   ```bash
-   cd server
-   python server.py
-   ```
-
-   **Agent (Linux avec sudo pour accès réseau complet) :**
-
-   ```bash
-   cd agent
-   sudo python agent.py
-   ```
-
-   **Agent (Windows - Exécuter en tant qu'Administrateur) :**
-
-   ```cmd
-   cd agent
-   python agent.py
-   ```
-
-> ⚠️ **Important** : le fichier de données `metrics.db` n'est **pas** inclus
-> dans le dépôt. Il est généré automatiquement dans `server/db/metrics.db`
-> lors du premier démarrage du serveur. Chaque utilisateur/clône aura sa
-> propre base vide, et le fichier est ignoré par Git grâce au
-> `.gitignore` ci‑dessous.
 
 ---
 
 ## 🔧 Configuration
 
-### Serveur — `server/config.py`
+### Server — `config.yaml`
 
-| Paramètre              | Défaut      | Description                                                              |
-| ---------------------- | ----------- | ------------------------------------------------------------------------ |
-| `SERVER_HOST`          | `"0.0.0.0"` | Interface d'écoute (`0.0.0.0` = toutes)                                  |
-| `SERVER_PORT`          | `5000`      | Port du serveur web                                                      |
-| `ALLOWED_AGENT_IPS`    | `[]`        | IPs autorisées pour les agents (vide = toutes)                           |
-| `ALLOWED_CLIENT_IPS`   | `[]`        | IPs autorisées pour le navigateur (vide = toutes)                        |
-| `ENABLE_AUTH`          | `False`     | Activer l'authentification par token                                     |
-| `AUTH_TOKEN`           | `"..."`     | Token secret si `ENABLE_AUTH = True`                                     |
-| `TIMEOUT`              | `60`        | Secondes avant de marquer un agent hors ligne (carte conservée en rouge) |
-| `CPU_ALERT_THRESHOLD`  | `90`        | Seuil CPU (%) pour générer une alerte (voir aussi CPU_ALERT_DURATION)    |
-| `CPU_ALERT_DURATION`   | `30`        | Durée en secondes au-delà du seuil CPU pour déclencher l'alerte          |
-| `RAM_ALERT_THRESHOLD`  | `95`        | Seuil RAM (%) déclenchant une alerte instantanée                         |
-| `DISK_ALERT_THRESHOLD` | `100`       | Seuil disque (%) déclenchant une alerte instantanée                      |
+Generated automatically on first launch next to the executable (or in `server/` when running from source). Edit it manually or use the **Settings** tab in the web interface.
 
-### Accès à l'historique
+| Parameter              | Default     | Description                                |
+| ---------------------- | ----------- | ------------------------------------------ |
+| `SERVER_HOST`          | `"0.0.0.0"` | Listening interface (`0.0.0.0` = all)      |
+| `SERVER_PORT`          | `5000`      | Web server port                            |
+| `ALLOWED_AGENT_IPS`    | `[]`        | IPs allowed for agents (empty = all)       |
+| `ALLOWED_CLIENT_IPS`   | `[]`        | IPs allowed for browsers (empty = all)     |
+| `ENABLE_AUTH`          | `false`     | Enable token authentication                |
+| `AUTH_TOKEN`           | `"..."`     | Secret token (if `ENABLE_AUTH = true`)     |
+| `TIMEOUT`              | `60`        | Seconds before marking an agent offline    |
+| `CPU_ALERT_THRESHOLD`  | `90`        | CPU (%) to trigger alert                   |
+| `CPU_ALERT_DURATION`   | `25`        | Duration in seconds above CPU threshold    |
+| `RAM_ALERT_THRESHOLD`  | `95`        | RAM (%) to trigger instant alert           |
+| `DISK_ALERT_THRESHOLD` | `90`        | Disk (%) to trigger instant alert          |
+| `PROCESS_LIMIT`        | `100`       | Max processes reported per agent           |
+| `NETWORK_CONN_LIMIT`   | `100`       | Max network connections reported per agent |
 
-Vous pouvez interroger les métriques enregistrées dans la base SQLite via l'API :
+> To force reconfiguration via terminal: `vigil-server.exe --reconfigure`
 
-```
-GET /api/history/{hostname}?hours=24
-```
+### Agent — `agent_config.json`
 
-Le paramètre `hours` fixe la durée (en heures) de l'historique retourné. La réponse contient un tableau `history` de points horodatés utilisé par l'interface Web pour tracer les courbes CPU/RAM/DISK.
+Created automatically after the interactive setup on first launch, saved next to the executable.
 
-> Exemple : `/api/history/WORKSTATION-01?hours=72` renverra les derniers trois jours de données.
+| Parameter         | Default          | Description                     |
+| ----------------- | ---------------- | ------------------------------- |
+| `SERVER_IP`       | `"192.168.1.10"` | Central server IP or hostname   |
+| `SERVER_PORT`     | `5000`           | Central server port             |
+| `UPDATE_INTERVAL` | `1`              | Metrics send interval (seconds) |
+| `ENABLE_AUTH`     | `false`          | Enable auth token               |
+| `AUTH_TOKEN`      | `null`           | Token (must match server token) |
 
-L'interface principale du dashboard propose désormais deux contrôles importants dans la barre latérale :
-
-- **Activité** : permet de visualiser l'historique d'un agent sans ouvrir la modale (1 h/4 h/24 h/7 j).
-- **Notifications** : affiche toutes les alertes reçues, organisées par agent et par jour. Les messages envoyés par le serveur sont archivés jusqu'à ce que la page soit rafraîchie.
-
-Ces deux vues remplacent dynamiquement le contenu principal et un clic sur **Dashboard** ou **Agents** revient à l'affichage de la grille habituelle.
-
-_Lorsque le serveur ne reçoit plus de métriques pendant la durée de `TIMEOUT`, l'agent est simplement marqué comme **hors ligne** : sa carte reste visible, un badge rouge apparaît et le serveur envoie une alerte aux clients connectés._
-
-| `PROCESS_LIMIT` | `100` | Nombre max de processus remontés |
-| `NETWORK_CONN_LIMIT` | `100` | Nombre max de connexions réseau remontées |
-
-### Agent — `agent/config.py`
-
-| Paramètre            | Défaut              | Description                                 |
-| -------------------- | ------------------- | ------------------------------------------- |
-| `SERVER_IP`          | `"192.168.188.120"` | IP du serveur central à atteindre           |
-| `SERVER_PORT`        | `5000`              | Port du serveur central                     |
-| `UPDATE_INTERVAL`    | `1`                 | Intervalle d'envoi des données (secondes)   |
-| `ENABLE_AUTH`        | `False`             | Activer l'authentification par token        |
-| `AUTH_TOKEN`         | `"..."`             | Token secret si `ENABLE_AUTH = True`        |
-| `TIMEOUT`            | `10`                | Timeout de connexion vers le serveur        |
-| `PROCESS_LIMIT`      | `100`               | Nombre max de processus à collecter         |
-| `NETWORK_CONN_LIMIT` | `100`               | Nombre max de connexions réseau à collecter |
+> To reconfigure: `vigil-agent.exe --reconfigure`
 
 ---
 
-## 📚 Guide de Déploiement
+## 📁 File Structure (binaries)
 
-### Scénario : Entreprise avec 1 serveur + 20 PC
+After extracting the release archives, your folders will look like:
 
-#### Étape 1 : Serveur Central
-
-1. Choisir un PC toujours allumé
-2. Installer le serveur :
-   ```bash
-   ./install.sh
-   # Choisir option 1 (Serveur)
-   ```
-3. Noter l'IP affichée (ex: `x.x.x.x`)
-4. Ouvrir le port du serveur que vous avez défini (ex : port 5000) :
-   ```bash
-   sudo ufw allow 5000/tcp  # Linux
-   # ou dans Pare-feu Windows
-   ```
-5. Accéder à `http://x.x.x.x:5000`
-
-#### Étape 2 : Agents
-
-Sur chaque PC à surveiller :
-
-```bash
-./install.sh
-# Choisir option 2 (Agent)
-# Entrer l'IP du serveur : x.x.x.x
 ```
+vigil-server/
+├── vigil-server.exe       ← or vigil-server on Linux
+├── config.yaml            ← created on first launch
+├── config.yaml.bak        ← automatic backup before each save
+├── users.yaml             ← user accounts (if auth enabled)
+├── metrics.db             ← SQLite history database
+├── static/
+└── templates/
 
-#### Étape 3 : Vérification
-
-- Ouvrir `http://x.x.x.x:5000`
-- Tous les PC doivent apparaître avec leurs icônes
-- Cliquer sur "📊 Détails" pour voir les graphiques
+vigil-agent/
+├── vigil-agent.exe        ← or vigil-agent on Linux
+└── agent_config.json      ← created after first setup
+```
 
 ---
 
-## 🔧 Configuration Avancée
+## 🌐 API Endpoints
 
-### Changer l'intervalle de mise à jour
+| Method | Endpoint                           | Description                               |
+| ------ | ---------------------------------- | ----------------------------------------- |
+| `GET`  | `/`                                | Web dashboard                             |
+| `GET`  | `/health`                          | Server health check                       |
+| `GET`  | `/api/computers`                   | List all agents and their current metrics |
+| `GET`  | `/api/history/{hostname}?hours=24` | Metric history for a specific agent       |
+| `GET`  | `/api/notifications`               | List all alerts                           |
+| `GET`  | `/api/settings`                    | Read current server configuration         |
+| `POST` | `/api/settings`                    | Update server configuration               |
+| `POST` | `/api/settings/reset`              | Restore configuration from backup         |
+| `WS`   | `/ws`                              | WebSocket for web clients (browser)       |
+| `WS`   | `/ws/agent`                        | WebSocket for agents                      |
 
-Dans `agent/config.py` :
+---
 
-```python
-UPDATE_INTERVAL = T  # Mise à jour toutes les T secondes
+## 🏢 Deployment Guide
+
+### Example: 1 server + 20 PCs
+
+**Step 1 — Central Server**
+
+1. Choose a machine that stays on 24/7
+2. Run `vigil-server.exe` and complete the setup
+3. Note the displayed IP (e.g. `192.168.1.10`)
+4. Open the firewall port:
+   ```bash
+   sudo ufw allow 5000/tcp   # Linux
+   # or Windows Firewall → New inbound rule → Port 5000
+   ```
+5. Access `http://192.168.1.10:5000`
+
+**Step 2 — Agents**
+
+On each PC to monitor:
+
+1. Copy and extract `vigil-agent-windows.zip`
+2. Run `vigil-agent.exe` as Administrator
+3. Enter the server IP: `192.168.1.10`
+4. The PC appears immediately in the dashboard
+
+**Step 3 — Verification**
+
+- Open `http://192.168.1.10:5000`
+- All PCs appear with their icons
+- Click **Details** on any card to view graphs and processes
+
+---
+
+## 📋 Requirements
+
+### Binaries (no installation needed)
+
+- Windows 10/11 or Linux (x86_64)
+- Network connectivity between machines
+- Administrator/root privileges
+
+### From source
+
+- Python 3.11+
+- See `server/requirements.txt` and `agent/requirements.txt`
+
+---
+
+## 📄 License
+
+MIT License — see [LICENSE](LICENSE) for details.
+
+---
+
+## 🤝 Contributing
+
+Pull requests are welcome. For major changes, please open an issue first.
+
 ```
-
-### Limiter les IPs autorisées
-
-Dans `server/server.py`, ajouter avant `@app.route('/update')` :
-
-```python
-ALLOWED_IPS = ['x.x.x.x', 'w.w.w.w', 'y.y.y.y']
+git clone https://github.com/christ20351/VIGIL.git
+git checkout -b feature/your-feature
+git commit -m "feat: your feature"
+git push origin feature/your-feature
 ```

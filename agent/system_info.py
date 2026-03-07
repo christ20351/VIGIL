@@ -8,10 +8,14 @@ import sys
 import time
 
 import psutil
-from collectors import get_network_interfaces, get_network_protocols, get_top_processes
 
 # importer la config pour les constantes de limites
-from collectors import PROCESS_LIMIT
+from collectors import (
+    PROCESS_LIMIT,
+    get_network_interfaces,
+    get_network_protocols,
+    get_top_processes,
+)
 
 # Variables globales pour calculer le débit réseau
 last_net_io = None

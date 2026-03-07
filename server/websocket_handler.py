@@ -1,8 +1,8 @@
 """
 WebSocket support pour les mises à jour en temps réel
 Gère deux types de WebSocket:
-1. /ws - Pour les clients web (navigateur)
-2. /ws/agent - Pour les agents qui envoient les données
+1. /ws         - Pour les clients web (navigateur)
+2. /ws/agent   - Pour les agents qui envoient les données
 """
 
 import asyncio
@@ -17,6 +17,7 @@ try:
 except ImportError:
     insert_metric = lambda *args, **kwargs: None
     insert_notification = lambda *args, **kwargs: None
+
 from fastapi import WebSocket, WebSocketDisconnect
 
 # événement loop principal (capturé à l'initialisation FastAPI)
@@ -50,10 +51,8 @@ class ClientConnectionManager:
         for connection in self.active_connections:
             try:
                 await connection.send_json(message)
-            except Exception as e:
+            except Exception:
                 disconnected.append(connection)
-
-        # Nettoyer les connexions mortes
         for conn in disconnected:
             self.disconnect(conn)
 
@@ -65,7 +64,6 @@ class AgentConnectionManager:
         self.agent_connections = {}  # hostname -> websocket
 
     async def connect(self, websocket: WebSocket, hostname: str):
-        # NOTE: websocket.accept() est appelé dans agent_endpoint avant cet appel
         self.agent_connections[hostname] = websocket
         print(
             f"✓ Agent connecté: {hostname} (total agents: {len(self.agent_connections)})"
@@ -79,11 +77,9 @@ class AgentConnectionManager:
             )
 
     async def get_agent_socket(self, hostname: str):
-        """Récupère la socket WebSocket d'un agent"""
         return self.agent_connections.get(hostname)
 
     def get_all_agents(self):
-        """Retourne la liste de tous les agents connectés"""
         return list(self.agent_connections.keys())
 
 
@@ -95,14 +91,15 @@ agent_manager = AgentConnectionManager()
 _threshold_state = {}
 
 
-# ----- helpers ----------------------------------------------------------
-def _check_thresholds(hostname: str, data: dict):
-    """Contrôle les valeurs contre des seuils et retourne les messages d'alerte.
+# ================================================================
+#  VÉRIFICATION DES SEUILS (CPU / RAM / DISK / SMART)
+# ================================================================
 
-    Le code appelant s'occupera du broadcast pour rester dans le contexte
-    asynchrone.
 
-    Les règles par défaut peuvent être configurées dans `server/config.py`.
+def _check_thresholds(hostname: str, agent_data: dict, smart_payload: dict) -> list:
+    """
+    Contrôle les valeurs contre les seuils configurés.
+    Retourne une liste de tuples (message, severity).
     """
     import time
 
@@ -117,25 +114,48 @@ def _check_thresholds(hostname: str, data: dict):
         RAM_ALERT_THRESHOLD,
     )
 
-    cpu = data.get("cpu_percent", 0)
+    # ── CPU ───────────────────────────────────────────────────────
+    cpu = agent_data.get("cpu_percent", 0)
     if cpu >= CPU_ALERT_THRESHOLD:
         if "cpu" not in state:
             state["cpu"] = now
         elif now - state["cpu"] >= CPU_ALERT_DURATION:
-            alerts.append(f"CPU élevé ({cpu:.1f}%)")
+            alerts.append((f"CPU élevé ({cpu:.1f}%)", "warning"))
             state["cpu"] = now
     else:
         state.pop("cpu", None)
 
-    ram = data.get("memory", {}).get("percent", 0)
+    # ── RAM ───────────────────────────────────────────────────────
+    ram = agent_data.get("memory", {}).get("percent", 0)
     if ram > RAM_ALERT_THRESHOLD:
-        alerts.append(f"RAM critique ({ram:.1f}%)")
+        alerts.append((f"RAM critique ({ram:.1f}%)", "error"))
 
-    disk = data.get("disk", {}).get("percent", 0)
+    # ── DISQUE ────────────────────────────────────────────────────
+    disk = agent_data.get("disk", {}).get("percent", 0)
     if disk >= DISK_ALERT_THRESHOLD:
-        alerts.append(f"Disque plein ({disk:.1f}%)")
+        alerts.append((f"Disque plein ({disk:.1f}%)", "error"))
+
+    # ── S.M.A.R.T. ────────────────────────────────────────────────
+    if smart_payload and smart_payload.get("available"):
+        for alert in smart_payload.get("alerts", []):
+            disk_name = alert.get("disk", "?")
+            alert_type = alert.get("type", "unknown")
+            level = alert.get("level", "WARNING")
+            message = alert.get("message", "")
+
+            # Clé unique pour éviter le spam (re-alerte toutes les 5 min)
+            alert_key = f"smart_{disk_name}_{alert_type}"
+            if alert_key not in state or now - state[alert_key] >= 300:
+                severity = "error" if level == "CRITICAL" else "warning"
+                alerts.append((message, severity))
+                state[alert_key] = now
 
     return alerts
+
+
+# ================================================================
+#  ENDPOINT CLIENTS WEB
+# ================================================================
 
 
 async def web_client_endpoint(websocket: WebSocket, computers_data):
@@ -147,7 +167,7 @@ async def web_client_endpoint(websocket: WebSocket, computers_data):
 
     await client_manager.connect(websocket)
     try:
-        # Envoyer les données actuelles immédiatement à la connexion
+        # Envoi initial de l'état complet
         await websocket.send_json(
             {
                 "type": "update",
@@ -157,7 +177,6 @@ async def web_client_endpoint(websocket: WebSocket, computers_data):
         )
 
         while True:
-            # Envoyer les données mises à jour toutes les secondes
             await websocket.send_json(
                 {
                     "type": "update",
@@ -165,12 +184,16 @@ async def web_client_endpoint(websocket: WebSocket, computers_data):
                     "timestamp": datetime.now().isoformat(),
                 }
             )
-            # Attendre 1 seconde pour des mises à jour plus fréquentes
             await asyncio.sleep(1)
     except WebSocketDisconnect:
         client_manager.disconnect(websocket)
-    except Exception as e:
+    except Exception:
         client_manager.disconnect(websocket)
+
+
+# ================================================================
+#  ENDPOINT AGENTS
+# ================================================================
 
 
 async def agent_endpoint(websocket: WebSocket, computers_data):
@@ -181,143 +204,172 @@ async def agent_endpoint(websocket: WebSocket, computers_data):
         return
 
     hostname = None
+    agent_ip = client_ip
+
     try:
-        # IMPORTANT: Accepter d'abord, puis lire les messages
         await websocket.accept()
+        print(f"-> agent connection accepted from {client_ip}")
 
-        # Attendre le premier message contenant le hostname (register)
-        initial_msg = await websocket.receive_json()
+        # ── Message d'enregistrement initial ──────────────────────
+        try:
+            initial_msg = await websocket.receive_json()
+        except WebSocketDisconnect:
+            print(
+                f"! WebSocketDisconnect while waiting initial register from {client_ip}"
+            )
+            return
+        except Exception as e:
+            print(f"! Exception while receiving initial register from {client_ip}: {e}")
+            try:
+                await websocket.close(code=1011, reason="receive error")
+            except Exception:
+                pass
+            return
 
-        # Accepter "register" ou hostname directement
-        if initial_msg.get("type") == "register":
-            hostname = initial_msg.get("hostname")
-            agent_ip = initial_msg.get("local_ip")
-        else:
-            hostname = initial_msg.get("hostname")
-            agent_ip = initial_msg.get("local_ip")
+        # ── Authentification ──────────────────────────────────────
+        try:
+            from config import AUTH_TOKEN, ENABLE_AUTH
+        except ImportError:
+            ENABLE_AUTH = False
+            AUTH_TOKEN = None
+
+        if ENABLE_AUTH and AUTH_TOKEN:
+            token = initial_msg.get("auth_token")
+            if token is None:
+                print(
+                    f"! Warning: no auth token provided by {client_ip} (accepting for backward compatibility)"
+                )
+            elif token != AUTH_TOKEN:
+                print(
+                    f"✗ Invalid auth token from {client_ip}: received={token!r} expected=***"
+                )
+                await websocket.close(code=1008, reason="Invalid token")
+                return
+
+        # ── Extraction hostname ────────────────────────────────────
+        if isinstance(initial_msg, dict):
+            if initial_msg.get("type") == "register":
+                hostname = initial_msg.get("hostname")
+                agent_ip = initial_msg.get("local_ip") or client_ip
+            else:
+                hostname = initial_msg.get("hostname") or initial_msg.get("host")
+                agent_ip = initial_msg.get("local_ip") or client_ip
 
         if not hostname:
-            await websocket.close(code=1000, reason="No hostname provided")
+            print(
+                f"✗ No hostname provided by agent from {client_ip}; closing connection"
+            )
+            try:
+                await websocket.close(code=1000, reason="No hostname provided")
+            except Exception:
+                pass
             return
 
         await agent_manager.connect(websocket, hostname)
 
-        # Recevoir les données de l'agent continuellement
+        # ── Boucle de réception des métriques ─────────────────────
         while True:
-            data = await websocket.receive_json()
+            try:
+                message = await websocket.receive_json()
+            except WebSocketDisconnect:
+                print(
+                    f"! WebSocketDisconnect while receiving from {hostname} ({client_ip})"
+                )
+                break
+            except Exception as e:
+                print(
+                    f"! Exception while receiving JSON from {hostname} ({client_ip}): {e}"
+                )
+                break
 
-            if data.get("type") == "metrics":
-                # Mettre à jour les données du computer
-                agent_data = data.get("data", {})
-                agent_data["agent_ip"] = agent_ip  # Ajouter l'IP de l'agent
-                # champs de suivi
+            if message.get("type") == "metrics":
+                agent_data = message.get("data", {})
+                agent_data["agent_ip"] = agent_ip
                 agent_data["last_seen"] = datetime.now().isoformat()
                 agent_data["offline"] = False
-                # supprimer l'éventuelle date de mise hors ligne
                 agent_data.pop("offline_since", None)
 
-                # enregistrer dans la base historique
-                try:
-                    from db.storage import insert_metric
+                # ── Récupération payload SMART ─────────────────────
+                smart_payload = message.get("smart", {})
 
+                # Validation basique du payload SMART
+                if not isinstance(smart_payload, dict):
+                    smart_payload = {}
+
+                # Attacher les données SMART à l'agent dans computers_data
+                agent_data["smart"] = smart_payload
+
+                # ── Persistance en base ────────────────────────────
+                try:
                     insert_metric(hostname, agent_data)
                 except Exception:
                     pass
 
                 computers_data[hostname] = agent_data
-                # stocker en base
-                try:
-                    insert_metric(hostname, agent_data)
-                except Exception:
-                    pass
 
-                # journaliser
+                # ── Log console ────────────────────────────────────
+                smart_log = ""
+                if smart_payload.get("available"):
+                    disks = smart_payload.get("disks", [])
+                    smart_log = " | 💾 " + " ".join(
+                        f"{d['disk']}:{d.get('health','?')} {d.get('temperature','?')}°C"
+                        for d in disks
+                        if d.get("available")
+                    )
+
                 print(
                     f"📊 {hostname}: "
                     f"CPU={agent_data.get('cpu_percent', 0):.1f}% | "
                     f"RAM={agent_data.get('memory', {}).get('percent', 0):.1f}% | "
                     f"TCP={agent_data.get('protocols', {}).get('tcp', {}).get('established', 0)}"
+                    f"{smart_log}"
                 )
 
-                # vérifier les seuils et envoyer des alertes éventuelles
-                alerts = _check_thresholds(hostname, agent_data)
-                if alerts:
-                    # broadcast each alert (nous sommes déjà dans un contexte async)
-                    for msg in alerts:
-                        # persist the alert
-                        try:
-                            sev = "info"
-                            t = (msg or "").lower()
-                            if "hors ligne" in t or "disque" in t or "critique" in t:
-                                sev = "error"
-                            elif "élevé" in t or "alerte" in t or "échec" in t:
-                                sev = "warning"
-                            insert_notification(hostname, msg, sev)
-                        except Exception:
-                            pass
-                        try:
-                            await client_manager.broadcast(
-                                {
-                                    "type": "alert",
-                                    "hostname": hostname,
-                                    "message": msg,
-                                    "timestamp": datetime.now().isoformat(),
-                                }
-                            )
-                        except Exception as e:
-                            print(f"⚠️  Échec broadcast alertes: {e}")
+                # ── Vérification des seuils + alertes ─────────────
+                threshold_alerts = _check_thresholds(
+                    hostname, agent_data, smart_payload
+                )
+
+                for msg, sev in threshold_alerts:
+                    try:
+                        insert_notification(hostname, msg, sev)
+                    except Exception:
+                        pass
+                    try:
+                        await client_manager.broadcast(
+                            {
+                                "type": "alert",
+                                "hostname": hostname,
+                                "message": msg,
+                                "severity": sev,
+                                "timestamp": datetime.now().isoformat(),
+                            }
+                        )
+                    except Exception as e:
+                        print(f"⚠️  Échec broadcast alertes: {e}")
 
     except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"❌ Erreur agent {hostname}: {e}")
+    finally:
+        # ── Marquage hors ligne ────────────────────────────────────
         if hostname:
-            # marquer hors ligne immédiatement
             data = computers_data.get(hostname, {})
             if data and not data.get("offline"):
                 data["offline"] = True
                 data["offline_since"] = datetime.now().isoformat()
-                # alerte hors ligne
                 try:
-                    # persist and broadcast
-                    try:
-                        insert_notification(hostname, "Agent hors ligne", "error")
-                    except Exception:
-                        pass
+                    insert_notification(hostname, "Agent hors ligne", "error")
+                except Exception:
+                    pass
+                try:
                     await client_manager.broadcast(
                         {
                             "type": "alert",
                             "hostname": hostname,
                             "message": "Agent hors ligne",
-                            "timestamp": datetime.now().isoformat(),
-                        }
-                    )
-                    # also push an update so the offline flag propagates
-                    await client_manager.broadcast(
-                        {
-                            "type": "agent_update",
-                            "hostname": hostname,
-                            "data": data,
-                        }
-                    )
-                except Exception:
-                    pass
-            agent_manager.disconnect(hostname)
-    except Exception as e:
-        print(f"❌ Erreur agent {hostname}: {e}")
-        if hostname:
-            # même logique de marquage hors ligne
-            data = computers_data.get(hostname, {})
-            if data and not data.get("offline"):
-                data["offline"] = True
-                data["offline_since"] = datetime.now().isoformat()
-                try:
-                    try:
-                        insert_notification(hostname, "Agent hors ligne (erreur)", "error")
-                    except Exception:
-                        pass
-                    await client_manager.broadcast(
-                        {
-                            "type": "alert",
-                            "hostname": hostname,
-                            "message": "Agent hors ligne (erreur)",
+                            "severity": "error",
                             "timestamp": datetime.now().isoformat(),
                         }
                     )
@@ -331,22 +383,24 @@ async def agent_endpoint(websocket: WebSocket, computers_data):
                 except Exception:
                     pass
             agent_manager.disconnect(hostname)
+
+
+# ================================================================
+#  SETUP
+# ================================================================
 
 
 def setup_websocket(app, computers_data):
     """Configure les endpoints WebSocket sur l'app FastAPI"""
 
-    # capturer la boucle d'exécution utilisée par FastAPI/uvicorn
     @app.on_event("startup")
     async def _capture_loop():
         set_main_loop(asyncio.get_running_loop())
 
     @app.websocket("/ws")
     async def websocket_web_clients(websocket: WebSocket):
-        """WebSocket pour les clients web (navigateur)"""
         await web_client_endpoint(websocket, computers_data)
 
     @app.websocket("/ws/agent")
     async def websocket_agents(websocket: WebSocket):
-        """WebSocket pour les agents (envoient les données)"""
         await agent_endpoint(websocket, computers_data)

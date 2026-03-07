@@ -1,223 +1,284 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-echo "=========================================="
+# Script d'installation (équivalent de install.bat mais en Bash)
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+echo "==========================================="
 echo "  Monitoring System v2.0 - Installation"
-echo "=========================================="
-echo ""
+echo "==========================================="
+echo
 
-# Couleurs pour affichage
-COLOR_GREEN='\033[0;32m'
-COLOR_RED='\033[0;31m'
-COLOR_YELLOW='\033[1;33m'
-NC='\033[0m'
-
-# Banniere VIGIL
-echo -e "${COLOR_YELLOW}"
-echo '#    #   ###    ###    ###    #    #'
-echo '#    #    #    #       #     #    #'
-echo '#    #    #    # ###   #     #    #'
-echo ' #  #     #    #   #   #     #    #'
-echo '  ##     ###    ###   ###   #####'
-echo -e "${COLOR_GREEN}"
-echo '       VIGIL - Monitoring System'
-echo -e "${NC}"
+# Try to display banner via PowerShell Core if available, ignore otherwise
+if command -v pwsh >/dev/null 2>&1; then
+    pwsh -NoProfile -ExecutionPolicy Bypass -File "${SCRIPT_DIR}/scripts/banner.ps1" || true
+elif command -v powershell >/dev/null 2>&1; then
+    powershell -NoProfile -ExecutionPolicy Bypass -File "${SCRIPT_DIR}/scripts/banner.ps1" || true
+fi
 
 echo "Que voulez-vous installer ?"
 echo "1) Serveur Central"
 echo "2) Agent de Monitoring"
-read -p "Votre choix (1 ou 2) : " choice
+read -rp "Votre choix (1 ou 2) : " choice
 
-if ! command -v python3 >/dev/null 2>&1; then
-    echo -e "${COLOR_RED}[ERREUR] Python3 n'est pas installe. Installez Python3 puis relancez ce script.${NC}"
-    exit 1
-fi
-echo -e "${COLOR_GREEN}[OK] Python3 est installe.${NC}"
-
-# ==========================================
-# Fonctions utilitaires
-# ==========================================
-
-update_string_value() {
-    local file="$1"
-    local key="$2"
-    local value="$3"
-    sed -i "s/${key} = \"[^\"]*\"/${key} = \"${value}\"/" "$file"
-}
-
-update_int_value() {
-    local file="$1"
-    local key="$2"
-    local value="$3"
-    sed -i "s/^${key} = [0-9]*/${key} = ${value}/" "$file"
-}
-
-ask_string() {
-    local prompt="$1"
-    local file="$2"
-    local key="$3"
-    read -p "$prompt" value
-    if [ -n "$value" ]; then
-        update_string_value "$file" "$key" "$value"
-        echo -e "${COLOR_GREEN}[OK] $key mis a jour.${NC}"
-    fi
-}
-
-ask_int() {
-    local prompt="$1"
-    local file="$2"
-    local key="$3"
-    read -p "$prompt" value
-    if [ -n "$value" ]; then
-        if [[ "$value" =~ ^[0-9]+$ ]]; then
-            update_int_value "$file" "$key" "$value"
-            echo -e "${COLOR_GREEN}[OK] $key mis a jour.${NC}"
-        else
-            echo -e "${COLOR_RED}[ERREUR] La valeur doit etre un nombre entier positif.${NC}"
-        fi
-    fi
-}
-
-# ==========================================
-if [ "$choice" == "1" ]; then
-    echo ""
-    echo "=========================================="
-    echo "  Configuration du SERVEUR CENTRAL"
-    echo "=========================================="
-
-    echo -e "${COLOR_YELLOW}[INFO] Installation des dependances serveur...${NC}"
-    pip3 install -r server/requirements.txt --quiet >/dev/null 2>&1
-    if [ $? -ne 0 ]; then
-        echo -e "${COLOR_RED}[ERREUR] Impossible d'installer les dependances serveur.${NC}"
-        exit 1
-    fi
-    echo -e "${COLOR_GREEN}[OK] Dependances installees.${NC}"
-
-    if [ ! -f server/config.py ]; then
-        cat > server/config.py << 'PYCONF'
-# ====================================
-# CONFIGURATION DU SERVEUR DE MONITORING v2.0
-# ====================================
-
-# === CONFIGURATION SERVEUR ===
-# Interface d'ecoute (0.0.0.0 pour toutes les interfaces)
-SERVER_HOST = "0.0.0.0"
-# Port du serveur web
-SERVER_PORT = 5000
-
-# === SECURITE ===
-# IPs autorisees pour les agents (laissez vide pour accepter toutes)
-ALLOWED_AGENT_IPS = [
-    # "192.168.1.10",
-    # "192.168.1.20",
-]
-# IPs autorisees pour les clients web (laissez vide pour accepter toutes)
-ALLOWED_CLIENT_IPS = [
-    # "192.168.1.100",
-    # "192.168.1.101",
-]
-
-# Activer l'authentification par token
-ENABLE_AUTH = False
-# Token secret pour l'authentification
-AUTH_TOKEN = "votre-token-secret-ici"
-
-# === MONITORING ===
-TIMEOUT = 60  # Secondes avant de considerer un PC deconnecte
-PROCESS_LIMIT = 100  # Nombre de processus a monitorer
-NETWORK_CONN_LIMIT = 100  # Nombre de connexions reseau a envoyer
-PYCONF
-        echo -e "${COLOR_GREEN}[OK] server/config.py cree avec les parametres par defaut.${NC}"
-    else
-        echo -e "${COLOR_YELLOW}[INFO] Configuration serveur existante trouvee.${NC}"
-    fi
-
-    ask_string "Modifier l'host du serveur ? (vide pour garder l'actuel) : " "server/config.py" "SERVER_HOST"
-    ask_int    "Modifier le port du serveur ? (vide pour garder l'actuel) : " "server/config.py" "SERVER_PORT"
-
-    echo ""
-    read -p "Demarrer le serveur maintenant ? (o/n) : " start_now
-    if [[ "$start_now" =~ ^[oO]$ ]]; then
-        echo -e "${COLOR_GREEN}[INFO] Demarrage du serveur...${NC}"
-        python3 server/server.py --mode web
-    else
-        echo ""
-        echo -e "${COLOR_GREEN}[OK] Installation terminee !${NC}"
-        echo "Pour demarrer le serveur :"
-        echo "  cd server && python3 server.py --mode web"
-    fi
-
-# ==========================================
-elif [ "$choice" == "2" ]; then
-    echo ""
-    echo "=========================================="
-    echo "  Configuration de l'AGENT"
-    echo "=========================================="
-
-    echo -e "${COLOR_YELLOW}[INFO] Installation des dependances agent...${NC}"
-    pip3 install -r agent/requirements.txt --quiet >/dev/null 2>&1
-    if [ $? -ne 0 ]; then
-        echo -e "${COLOR_RED}[ERREUR] Impossible d'installer les dependances agent.${NC}"
-        exit 1
-    fi
-    echo -e "${COLOR_GREEN}[OK] Dependances installees.${NC}"
-
-    if [ ! -f agent/config.py ]; then
-        cat > agent/config.py << 'PYCONF'
-# ====================================
-# CONFIGURATION DE L'AGENT DE MONITORING v2.0
-# ====================================
-
-# === CONFIGURATION SERVEUR CIBLE ===
-# IP du serveur central (modifiez selon votre deploiement)
-SERVER_IP = "192.168.188.120"
-# Port du serveur
-SERVER_PORT = 5000
-
-# === CONFIGURATION AGENT ===
-# Intervalle d'envoi des donnees en secondes (1 pour temps reel)
-UPDATE_INTERVAL = 1
-
-# === SECURITE (optionnel) ===
-# Activer l'authentification par token
-ENABLE_AUTH = False
-# Token secret pour l'authentification
-AUTH_TOKEN = "votre-token-secret-ici"
-
-# === MONITORING ===
-TIMEOUT = 10  # Secondes avant de considerer un PC deconnecte
-PROCESS_LIMIT = 100  # Nombre de processus a monitorer
-NETWORK_CONN_LIMIT = 100  # Nombre de connexions reseau a envoyer
-PYCONF
-        echo -e "${COLOR_GREEN}[OK] agent/config.py cree avec les parametres par defaut.${NC}"
-    else
-        echo -e "${COLOR_YELLOW}[INFO] Configuration agent existante trouvee.${NC}"
-    fi
-
-    ask_string "Entrez l'IP/hostname du serveur central (vide pour garder l'actuel) : " "agent/config.py" "SERVER_IP"
-    ask_int    "Entrez le port du serveur central (vide pour garder l'actuel) : "         "agent/config.py" "SERVER_PORT"
-    ask_int    "Intervalle d'envoi en secondes (vide pour garder l'actuel) : "            "agent/config.py" "UPDATE_INTERVAL"
-
-    echo ""
-    read -p "Demarrer l'agent maintenant ? (o/n) : " start_now
-    if [[ "$start_now" =~ ^[oO]$ ]]; then
-        echo -e "${COLOR_GREEN}[INFO] Demarrage de l'agent...${NC}"
-        sudo python3 agent/agent.py
-    else
-        echo ""
-        echo -e "${COLOR_GREEN}[OK] Installation terminee !${NC}"
-        echo "Pour demarrer l'agent :"
-        echo "  cd agent && sudo python3 agent.py"
-    fi
-
+# Detect available python interpreter (python or python3)
+if command -v python >/dev/null 2>&1; then
+    PYTHON=python
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON=python3
 else
-    echo -e "${COLOR_RED}[ERREUR] Choix invalide.${NC}"
+    echo "[ERREUR] Python n'est pas installe ou n'est pas dans le PATH"
+    echo "Telechargez Python depuis https://www.python.org/downloads/"
+    read -rp "Appuyez sur Entrée pour quitter..."
     exit 1
 fi
+echo "[OK] Utilisation de ${PYTHON}"
 
-echo ""
-echo "=========================================="
-echo -e "${COLOR_GREEN}  Installation terminee avec succes !${NC}"
-echo "=========================================="
+# Helper: install requirements in a venv and show errors
+pip_install() {
+  venv_python="$1"
+  reqfile="$2"
+  echo "Running: ${venv_python} -m pip install -r ${reqfile}"
+  if ${venv_python} -m pip install -r "${reqfile}"; then
+    return 0
+  fi
+  return 1
+}
 
-# Nettoyage : supprimer les dossiers __pycache__
-find . -type d -name "__pycache__" -exec rm -rf {} + >/dev/null 2>&1 || true
+# Helper: create venv if not exists
+setup_venv() {
+  venv_path="$1"
+  # Remove existing venv if pip is broken
+  if [ -d "${venv_path}" ]; then
+    if ! "${venv_path}/bin/python" -m pip --version >/dev/null 2>&1; then
+      echo "[WARN] Venv existant a pip cassé, suppression..."
+      rm -rf "${venv_path}"
+    else
+      echo "[OK] Venv pret: ${venv_path}"
+      return 0
+    fi
+  fi
+  
+  if [ ! -d "${venv_path}" ]; then
+    echo "[INFO] Creation de l'environnement virtuel..."
+    ${PYTHON} -m venv "${venv_path}" --upgrade-deps || { echo "[ERREUR] Impossible de creer le venv"; return 1; }
+  fi
+  echo "[OK] Venv pret: ${venv_path}"
+  return 0
+}
+
+server_flow() {
+    local VENV_DIR="server/.venv"
+    local VENV_PYTHON
+    
+    echo
+    echo "==========================================="
+    echo "Configuration du SERVEUR CENTRAL"
+    echo "==========================================="
+
+    if ! setup_venv "${VENV_DIR}"; then
+        echo "[ERREUR] Impossible de creer le venv serveur"
+        read -rp "Appuyez sur Entrée pour quitter..."
+        exit 1
+    fi
+
+    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+        VENV_PYTHON="${SCRIPT_DIR}/${VENV_DIR}/Scripts/python.exe"
+    else
+        VENV_PYTHON="${SCRIPT_DIR}/${VENV_DIR}/bin/python"
+    fi
+
+    echo "[INFO] Installation des dependances serveur..."
+    if ! pip_install "${VENV_PYTHON}" server/requirements.txt; then
+        echo "[ERREUR] Impossible d'installer les dependances serveur"
+        echo "Voir la sortie ci-dessus pour les details. Essayez manuellement: ${VENV_PYTHON} -m pip install -r server/requirements.txt"
+        read -rp "Appuyez sur Entrée pour quitter..."
+        exit 1
+    fi
+
+    if [ ! -f "server/config.yaml" ]; then
+        cat > server/config.yaml <<'YAML'
+# configuration du serveur v2.0
+SERVER_HOST: "0.0.0.0"
+SERVER_PORT: 5000
+
+ALLOWED_AGENT_IPS: []
+ALLOWED_CLIENT_IPS: []
+
+ENABLE_AUTH: false
+AUTH_TOKEN: "votre-token-secret-ici"
+
+TIMEOUT: 60
+PROCESS_LIMIT: 100
+NETWORK_CONN_LIMIT: 100
+
+CPU_ALERT_THRESHOLD: 70
+CPU_ALERT_DURATION: 25
+RAM_ALERT_THRESHOLD: 95
+DISK_ALERT_THRESHOLD: 90
+YAML
+        echo "[OK] server/config.yaml cree avec les parametres par defaut."
+    else
+        echo "[INFO] Configuration serveur existante trouvee."
+    fi
+
+    read -rp "Modifier l'host du serveur? (vide pour garder) : " new_host
+    if [ -n "${new_host}" ]; then
+        ${VENV_PYTHON} -c "import yaml,sys; path='server/config.yaml'; cfg=yaml.safe_load(open(path)) or {}; cfg['SERVER_HOST']=sys.argv[1]; open(path,'w').write(yaml.safe_dump(cfg))" "${new_host}"
+        echo "[OK] Host mis a jour."
+    fi
+
+    read -rp "Modifier le port du serveur? (vide pour garder) : " new_port
+    if [ -n "${new_port}" ]; then
+        ${VENV_PYTHON} -c "import yaml,sys; path='server/config.yaml'; cfg=yaml.safe_load(open(path)) or {}; cfg['SERVER_PORT']=int(sys.argv[1]); open(path,'w').write(yaml.safe_dump(cfg))" "${new_port}"
+        echo "[OK] Port mis a jour."
+    fi
+
+    read -rp "Activer l'authentification ? (o/n) : " auth_enable
+    if [[ "${auth_enable,,}" == "o" || "${auth_enable,,}" == "y" ]]; then
+        ${VENV_PYTHON} -c "import yaml,sys; path='server/config.yaml'; cfg=yaml.safe_load(open(path)) or {}; cfg['ENABLE_AUTH']=True; open(path,'w').write(yaml.safe_dump(cfg))"
+        read -rp "Entrez un token secret (laisser vide pour generer) : " token
+        if [ -z "${token}" ]; then
+            token=$(${VENV_PYTHON} - <<'PY'
+import secrets,string
+print(''.join(secrets.choice(string.ascii_letters+string.digits) for _ in range(16)))
+PY
+)
+            echo "Token genere : ${token}"
+        fi
+        ${VENV_PYTHON} -c "import yaml,sys; path='server/config.yaml'; cfg=yaml.safe_load(open(path)) or {}; cfg['AUTH_TOKEN']=sys.argv[1]; open(path,'w').write(yaml.safe_dump(cfg))" "${token}"
+    fi
+
+    echo
+    read -rp "Voulez-vous demarrer le serveur maintenant ? (o/n) : " start
+    if [[ "${start,,}" == "o" || "${start,,}" == "y" ]]; then
+        echo "#    #   ###    ###    ###    #    #"
+        echo "#    #    #    #       #     #    #"
+        echo "#    #    #    # ###   #     #    #"
+        echo " #  #     #    #   #   #     #    #"
+        echo "  ##     ###    ###   ###   #####"
+        echo
+        echo "       VIGIL - Monitoring System"
+        (cd server && ${VENV_PYTHON} server.py --mode web)
+    else
+        echo
+        echo "[OK] Installation terminee !"
+        echo "Pour demarrer le serveur :"
+        echo "  source ${VENV_DIR}/bin/activate  # ou .venv\Scripts\activate.bat sur Windows"
+        echo "  python server.py --mode web"
+    fi
+}
+
+agent_flow() {
+    local VENV_DIR="agent/.venv"
+    local VENV_PYTHON
+    
+    echo
+    echo "==========================================="
+    echo "Configuration de l'AGENT"
+    echo "==========================================="
+
+    if ! setup_venv "${VENV_DIR}"; then
+        echo "[ERREUR] Impossible de creer le venv agent"
+        read -rp "Appuyez sur Entrée pour quitter..."
+        exit 1
+    fi
+
+    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+        VENV_PYTHON="${SCRIPT_DIR}/${VENV_DIR}/Scripts/python.exe"
+    else
+        VENV_PYTHON="${SCRIPT_DIR}/${VENV_DIR}/bin/python"
+    fi
+
+    echo "[INFO] Installation des dependances agent..."
+    if ! pip_install "${VENV_PYTHON}" agent/requirements.txt; then
+        echo "[ERREUR] Impossible d'installer les dependances agent"
+        echo "Voir la sortie ci-dessus pour les details. Essayez manuellement: ${VENV_PYTHON} -m pip install -r agent/requirements.txt"
+        read -rp "Appuyez sur Entrée pour quitter..."
+        exit 1
+    fi
+
+    if [ ! -f "agent/config.yaml" ]; then
+        cat > agent/config.yaml <<'YAML'
+# configuration agent v2.0
+SERVER_IP: "192.168.188.120"
+SERVER_PORT: 5000
+
+UPDATE_INTERVAL: 1
+
+TIMEOUT: 10
+PROCESS_LIMIT: 100
+NETWORK_CONN_LIMIT: 100
+YAML
+        echo "[OK] agent/config.yaml cree avec les parametres par defaut."
+    else
+        echo "[INFO] Configuration agent existante trouvee."
+    fi
+
+    read -rp "Entrez l'IP/hostname du serveur central (laissez vide pour garder l'actuel) : " server_ip
+    if [ -n "${server_ip}" ]; then
+        ${VENV_PYTHON} -c "import yaml,sys; path='agent/config.yaml'; cfg=yaml.safe_load(open(path)) or {}; cfg['SERVER_IP']=sys.argv[1]; open(path,'w').write(yaml.safe_dump(cfg))" "${server_ip}"
+        echo "[OK] IP du serveur mise a jour."
+    fi
+
+    read -rp "Entrez le port du serveur central (laissez vide pour garder l'actuel) : " server_port
+    if [ -n "${server_port}" ]; then
+        ${VENV_PYTHON} -c "import yaml,sys; path='agent/config.yaml'; cfg=yaml.safe_load(open(path)) or {}; cfg['SERVER_PORT']=int(sys.argv[1]); open(path,'w').write(yaml.safe_dump(cfg))" "${server_port}"
+        echo "[OK] Port du serveur mis a jour."
+    fi
+
+    read -rp "Intervalle d'envoi en secondes (laissez vide pour garder l'actuel) : " interval
+    if [ -n "${interval}" ]; then
+        ${VENV_PYTHON} -c "import yaml,sys; path='agent/config.yaml'; cfg=yaml.safe_load(open(path)) or {}; cfg['UPDATE_INTERVAL']=int(sys.argv[1]); open(path,'w').write(yaml.safe_dump(cfg))" "${interval}"
+        echo "[OK] Intervalle d'envoi mis a jour."
+    fi
+
+    read -rp "Voulez-vous demarrer l'agent maintenant ? (o/n) : " start
+    if [[ "${start,,}" == "o" || "${start,,}" == "y" ]]; then
+        echo "#    #   ###    ###    ###    #    #"
+        echo "#    #    #    #       #     #    #"
+        echo "#    #    #    # ###   #     #    #"
+        echo " #  #     #    #   #   #     #    #"
+        echo "  ##     ###    ###   ###   #####"
+        echo
+        echo "       VIGIL - Monitoring System"
+        (cd agent && ${VENV_PYTHON} agent.py)
+    else
+        echo
+        echo "[OK] Installation terminee !"
+        echo "Pour demarrer l'agent :"
+        echo "  source ${VENV_DIR}/bin/activate  # ou .venv\Scripts\activate.bat sur Windows"
+        echo "  ${PYTHON} agent.py"
+    fi
+}
+
+invalid_choice() {
+    echo "[ERREUR] Choix invalide"
+    read -rp "Appuyez sur Entrée pour quitter..."
+    exit 1
+}
+
+case "${choice}" in
+    1) server_flow ;;
+    2) agent_flow ;;
+    *) invalid_choice ;;
+esac
+
+echo
+echo "==========================================="
+echo "Installation terminee avec succes !"
+echo "==========================================="
+
+# Nettoyage : supprimer les repertoires __pycache__ via Python
+if command -v ${PYTHON} >/dev/null 2>&1; then
+    ${PYTHON} - <<'PY'
+import os,shutil
+for root, dirs, files in os.walk('.', topdown=False):
+        for d in dirs:
+                if d == '__pycache__':
+                        shutil.rmtree(os.path.join(root, d), ignore_errors=True)
+PY
+fi
+
+read -rp "Appuyez sur Entrée pour terminer..."
