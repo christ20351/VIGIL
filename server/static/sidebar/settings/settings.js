@@ -323,9 +323,12 @@ function renderSettingsView() {
                     <label class="settings-label" for="AI_PROVIDER">Provider Moteur IA</label>
                     <div class="settings-input-wrap">
                       <select class="settings-input" id="AI_PROVIDER" name="AI_PROVIDER" style="background:#0f172a; color:#f8fafc;">
-                        <option value="auto_rule" ${cfg.AI_PROVIDER === "auto_rule" ? "selected" : ""}>Moteur Autonome VIGIL (Inclus, sans LLM externe)</option>
-                        <option value="ollama" ${cfg.AI_PROVIDER === "ollama" ? "selected" : ""}>Ollama (Modèle Local)</option>
-                        <option value="openai" ${cfg.AI_PROVIDER === "openai" ? "selected" : ""}>OpenAI / Compatible API (gpt-4o-mini, Groq, DeepSeek...)</option>
+                        <option value="auto_rule" ${cfg.AI_PROVIDER === "auto_rule" ? "selected" : ""}>Détection Auto (Ollama local / RAG BD)</option>
+                        <option value="ollama" ${cfg.AI_PROVIDER === "ollama" ? "selected" : ""}>Ollama (Modèle Local - Llama3, Mistral, Qwen)</option>
+                        <option value="groq" ${cfg.AI_PROVIDER === "groq" ? "selected" : ""}>Groq Cloud (Llama 3.3 70B ultra-rapide / Clé gratuite)</option>
+                        <option value="openrouter" ${cfg.AI_PROVIDER === "openrouter" ? "selected" : ""}>OpenRouter (Modèles Llama 3.2 / Gemma gratuits)</option>
+                        <option value="deepseek" ${cfg.AI_PROVIDER === "deepseek" ? "selected" : ""}>DeepSeek API</option>
+                        <option value="openai" ${cfg.AI_PROVIDER === "openai" ? "selected" : ""}>OpenAI / Compatible REST API (gpt-4o-mini, LM Studio...)</option>
                       </select>
                     </div>
                     <span class="settings-hint">Sélectionnez le fournisseur d'intelligence artificielle</span>

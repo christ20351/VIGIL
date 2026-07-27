@@ -8,7 +8,7 @@ from ai.agent_diag import diagnose_single_agent
 from ai.cluster_diag import diagnose_entire_cluster
 from ai.db_analytics import analyze_host_db_history, get_cluster_db_summary
 from ai.intent_parser import parse_user_intent
-from ai.providers import call_ollama_api, call_openai_api
+from ai.providers import call_llm_provider, call_ollama_api, call_openai_api
 
 
 def respond_naturally(
@@ -35,21 +35,17 @@ def respond_naturally(
 
     provider = cfg.get("AI_PROVIDER", "auto_rule")
 
-    # 1. Traitement via LLM externe (Ollama / OpenAI) avec RAG DB complet si disponible
-    if provider in ["ollama", "openai"] and cfg.get("AI_ENABLED", True):
+    # 1. Traitement via LLM externe (Ollama / Groq / OpenAI / OpenRouter) avec RAG DB complet si disponible
+    if cfg.get("AI_ENABLED", True):
         try:
-            db_context = f"BD CLUSTER ({hours}H):\n- Score: {cluster_diag['health_score']}/100\n- Alertes BD: {db_summary['recent_alerts'][:5]}\n"
+            db_context = f"BD CLUSTER ({hours}H):\n- Score: {cluster_diag['health_score']}/100\n- Hôtes en ligne: {cluster_diag['online_hosts']}/{cluster_diag['total_hosts']}\n- Alertes BD: {db_summary['recent_alerts'][:5]}\n"
             if host_db_data:
                 db_context += f"BD HÔTE {target_host}:\n- CPU Moyenne: {host_db_data['avg_cpu']}%, Pic: {host_db_data['peak_cpu']}%\n- Top Processus: {host_db_data['top_historical_procs']}\n"
 
-            sys_prompt = "Tu es VIGIL AI, un copilote sysadmin humain, chaleureux et expert. Réponds en français de manière fluide."
-            full_prompt = f"CONTEXTE BD SQLITE :\n{db_context}\n\nADMIN : {prompt}"
+            sys_prompt = "Tu es VIGIL AI, un copilote sysadmin humain, chaleureux et expert. Réponds en français de manière fluide avec les vrais chiffres de la BD."
+            full_prompt = f"DONNÉES TEMPS RÉEL BD SQLITE VIGIL :\n{db_context}\n\nADMIN SYS : {prompt}"
 
-            if provider == "ollama":
-                reply = call_ollama_api(full_prompt, sys_prompt, cfg.get("AI_ENDPOINT", ""), cfg.get("AI_MODEL", ""))
-            else:
-                reply = call_openai_api(full_prompt, sys_prompt, cfg.get("AI_ENDPOINT", ""), cfg.get("AI_MODEL", ""), cfg.get("AI_API_KEY", ""))
-
+            reply = call_llm_provider(full_prompt, sys_prompt, cfg)
             if reply:
                 return {"reply": reply, "provider": provider, "timestamp": datetime.now().isoformat()}
         except Exception:
