@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VIGIL — Monitoring Dashboard</title>
+
+    <!-- Fonts (with fallback system) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;600;700;800&display=swap"
+      rel="stylesheet"
+      onerror="console.warn('Google Fonts unavailable, using system fonts')"
+    />
+
+    <!-- CSS Stylesheets (local, works offline) -->
+    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="stylesheet" href="/static/sidebar/dashboard/dashboard.css" />
+    <link rel="stylesheet" href="/static/sidebar/dashboard/smart.css" />
+    <link rel="stylesheet" href="/static/sidebar/agents/agents.css" />
+    <link rel="stylesheet" href="/static/sidebar/activity/activity.css" />
+    <link rel="stylesheet" href="/static/sidebar/security/security.css" />
+    <link rel="stylesheet" href="/static/sidebar/settings/settings.css" />
+    <link rel="stylesheet" href="/static/sidebar/ai/ai.css" />
+    <link rel="stylesheet" href="/static/sidebar/ai/ai_drawer.css" />
+
+    <!-- Chart.js and Lucide (local first, works offline) -->
+    <script src="/static/vendor/chart.umd.min.js"></script>
+    <script src="/static/vendor/lucide.js"></script>
+
+    <!-- Fallback to CDN if local versions fail -->
+    <script>
+      if (typeof Chart === "undefined") {
+        const script = document.createElement("script");
+        script.src =
+          "https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js";
+        script.onerror = () =>
+          console.error("Chart.js unavailable from all sources");
+        document.head.appendChild(script);
+      }
+      if (typeof lucide === "undefined") {
+        const script = document.createElement("script");
+        script.src = "https://unpkg.com/lucide@0.344.0/dist/umd/lucide.js";
+        script.onerror = () =>
+          console.error("Lucide unavailable from all sources");
+        document.head.appendChild(script);
+      }
+    </script>
+
+    <!-- Application scripts (always loaded locally) -->
+    <script src="/static/script.js"></script>
+    <script src="/static/sidebar/dashboard/dashboard.js"></script>
+    <script src="/static/sidebar/dashboard/smart.js"></script>
+    <script src="/static/sidebar/agents/agents.js"></script>
+    <script src="/static/sidebar/activity/activity.js"></script>
+    <script src="/static/sidebar/security/security.js"></script>
+    <script src="/static/sidebar/settings/settings.js"></script>
+    <script src="/static/sidebar/ai/ai.js"></script>
+    <script src="/static/js/ai/ai_chat.js"></script>
+    <script src="/static/js/ai/ai_diag.js"></script>
+    <script src="/static/js/ai/ai_widgets.js"></script>
+    <script src="/static/js/ai/ai_autonomous.js"></script>
+  </head>
+  <body>
+    <div class="app">
+      <!-- ── SIDEBAR ── -->
+      <aside class="sidebar">
+        <div class="logo">
+          <div class="logo-text">VIGIL</div>
+          <div class="logo-sub">MONITORING SYSTEM v2.0</div>
+        </div>
+        <nav class="nav">
+          <div class="nav-item active">
+            <i data-lucide="layout-dashboard"></i> Dashboard
+          </div>
+          <div class="nav-item"><i data-lucide="server"></i> Agents</div>
+          <div class="nav-item"><i data-lucide="activity"></i> Activité</div>
+          <div class="nav-item" id="nav-notifications">
+            <i data-lucide="bell"></i>
+            <span class="nav-text">Notifications</span>
+            <span class="nav-badge" id="notif-count">0</span>
+          </div>
+          <div class="nav-item"><i data-lucide="bot"></i> IA Copilote</div>
+          <div class="nav-item"><i data-lucide="shield"></i> Sécurité</div>
+          <div class="nav-item"><i data-lucide="settings"></i> Paramètres</div>
+        </nav>
+        <div class="sidebar-footer">
+          <div class="ws-status">
+            <div class="ws-dot" id="ws-dot"></div>
+            <span id="ws-label">Connexion...</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ── MAIN ── -->
+      <div class="main">
+        <!-- TOPBAR -->
+        <div class="topbar">
+          <div class="topbar-title">INFRASTRUCTURE / AGENTS EN DIRECT</div>
+          {% if config.ENABLE_AUTH %}
+          <div class="topbar-user">
+            <a
+              href="/logout"
+              style="color: var(--accent); text-decoration: none"
+              >Déconnexion</a
+            >
+          </div>
+          {% endif %}
+          <div class="topbar-stats">
+            <div id="alerts" class="alerts-container"></div>
+            <div class="kpi">
+              <div class="kpi-val blue" id="total-pcs">0</div>
+              <div class="kpi-label">Total</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-val green" id="online-pcs">0</div>
+              <div class="kpi-label">En ligne</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-val red" id="offline-pcs">0</div>
+              <div class="kpi-label">Hors ligne</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-val" id="total-connections">0</div>
+              <div class="kpi-label">Connexions</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CONTENT -->
+        <div class="content">
+          <div id="computers-grid"></div>
+          <div id="no-computers">
+            <i data-lucide="server-off"></i>
+            <h2>Aucun agent connecté</h2>
+            <p>Les agents apparaîtront ici dès qu'ils enverront des données.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── MODAL ── -->
+    <div id="modal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div class="modal-title-wrap">
+            <i data-lucide="monitor"></i>
+            <span class="modal-title" id="modal-title">Agent</span>
+            <span class="modal-badge" id="modal-ip">—</span>
+            <span class="modal-status" id="modal-status"></span>
+          </div>
+          <button class="btn-close" id="btn-close">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+
+        <div class="tabs">
+          <button class="tab active" onclick="switchTab('overview')">
+            <i data-lucide="layout-dashboard"></i> Vue d'ensemble
+          </button>
+          <button class="tab" onclick="switchTab('processes')">
+            <i data-lucide="cpu"></i> Processus
+          </button>
+          <button class="tab" onclick="switchTab('network')">
+            <i data-lucide="network"></i> Réseau
+          </button>
+          <button class="tab" onclick="switchTab('smart')">
+            <i data-lucide="hard-drive"></i> S.M.A.R.T.
+          </button>
+          <button class="tab" onclick="switchTab('history')">
+            <i data-lucide="clock"></i> Historique
+          </button>
+          <button class="tab" onclick="switchTab('protocols')">
+            <i data-lucide="plug"></i> Protocoles
+          </button>
+        </div>
+
+        <div class="modal-body">
+          <div id="tab-overview" class="tab-content active"></div>
+          <div id="tab-processes" class="tab-content"></div>
+          <div id="tab-network" class="tab-content"></div>
+          <div id="tab-smart" class="tab-content"></div>
+          <div id="tab-history" class="tab-content"></div>
+          <div id="tab-protocols" class="tab-content"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── FLOATING AI COPILOT FAB ── -->
+    <button class="ai-fab-btn" onclick="toggleAiDrawer()" title="Copilote VIGIL AI (Base SQLite)">
+      <i data-lucide="bot"></i>
+      <span class="ai-fab-badge"></span>
+    </button>
+
+    <!-- ── AI COPILOT SIDE DRAWER ── -->
+    <div id="ai-drawer-overlay" class="ai-drawer-overlay" onclick="toggleAiDrawer()"></div>
+    <div id="ai-drawer" class="ai-drawer">
+      <div class="ai-drawer-header">
+        <div class="ai-drawer-title">
+          <i data-lucide="bot"></i> Copilote VIGIL AI (Base SQLite)
+        </div>
+        <button class="ai-drawer-close" onclick="toggleAiDrawer()"><i data-lucide="x"></i></button>
+      </div>
+      <div class="ai-drawer-body">
+        <div class="ai-chat-messages" id="ai-drawer-chat-messages" style="flex:1; padding:1rem;">
+          <div class="ai-msg assistant">
+            <div class="ai-avatar"><i data-lucide="bot"></i></div>
+            <div class="ai-bubble">
+              Bonjour ! Je suis **VIGIL AI**, connecté à votre base de données SQLite en temps réel.
+              Posez-moi des questions sur vos métriques, l'historique 24h, les pics de charge ou la santé des disques S.M.A.R.T.
+            </div>
+          </div>
+        </div>
+        <div class="ai-chat-input-row">
+          <input type="text" class="ai-chat-input" id="ai-drawer-input" placeholder="Posez une question à VIGIL AI (ex: 'Historique des 24h')..." />
+          <button class="ai-send-btn" onclick="handleDrawerAiSend()"><i data-lucide="send"></i></button>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

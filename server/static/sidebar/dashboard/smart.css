@@ -1,0 +1,410 @@
+/* ─────────────────────────────────────────────────────────────
+   S.M.A.R.T. Health Status Styling
+   ───────────────────────────────────────────────────────────── */
+
+[data-smart-section] {
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+  margin-bottom: 20px;
+}
+
+.smart-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ─── Header ─── */
+.smart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: rgba(0, 212, 255, 0.05);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+}
+
+.smart-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.smart-summary {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+}
+
+.smart-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.smart-stat .label {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.smart-stat .value {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.alert-count-active {
+  color: var(--red);
+}
+
+.alert-count-ok {
+  color: var(--green);
+}
+
+/* ─── Disk Cards ─── */
+.smart-disk-card {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.disk-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.disk-info {
+  flex: 1;
+}
+
+.disk-name {
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.disk-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.disk-status {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.health-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 80px;
+}
+
+.health-status.ok {
+  background: rgba(0, 230, 118, 0.15);
+  color: var(--green);
+}
+
+.health-status.critical {
+  background: rgba(255, 61, 113, 0.15);
+  color: var(--red);
+}
+
+.health-status.unknown {
+  background: rgba(255, 179, 0, 0.15);
+  color: var(--yellow);
+}
+
+.health-icon {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* ─── Metrics ─── */
+.disk-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.metric-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  background: rgba(93, 106, 133, 0.1);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.metric-label {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.metric-value {
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.metric-value.ok {
+  color: var(--green);
+}
+
+.metric-value.warning {
+  color: var(--yellow);
+}
+
+.metric-value.critical {
+  color: var(--red);
+}
+
+/* ─── Temperature Gauge ─── */
+.temp-gauge {
+  width: 100%;
+  height: 4px;
+  background: rgba(90, 106, 133, 0.3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.temp-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--green), var(--yellow), var(--red));
+  transition: width 0.3s ease;
+}
+
+.temp-value {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.metric-value.temp-ok {
+  color: var(--green);
+}
+
+.metric-value.temp-warning {
+  color: var(--yellow);
+}
+
+.metric-value.temp-critical {
+  color: var(--red);
+}
+
+/* ─── SMART Attributes ─── */
+.disk-attributes {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.disk-attributes summary {
+  cursor: pointer;
+  color: var(--muted);
+  padding: 4px;
+  user-select: none;
+}
+
+.disk-attributes summary:hover {
+  color: var(--accent);
+}
+
+.attributes-table {
+  margin-top: 8px;
+  padding: 8px;
+  background: rgba(13, 17, 23, 0.8);
+  border-radius: 3px;
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.attr-row {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  gap: 12px;
+}
+
+.attr-name {
+  flex: 1;
+  color: var(--muted);
+}
+
+.attr-value {
+  color: var(--text);
+  font-weight: 600;
+  text-align: right;
+}
+
+/* ─── Alerts ─── */
+.smart-alerts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(255, 61, 113, 0.08);
+  border-left: 3px solid var(--red);
+  border-radius: 4px;
+}
+
+.alert-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--red);
+  font-size: 12px;
+}
+
+.smart-alert {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.smart-alert.alert-critical {
+  border-left: 3px solid var(--red);
+}
+
+.smart-alert.alert-warning {
+  border-left: 3px solid var(--yellow);
+}
+
+.smart-alert.alert-info {
+  border-left: 3px solid var(--muted);
+}
+
+.alert-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.alert-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.alert-type {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.alert-message {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.alert-detail {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+
+/* ─── Status Messages ─── */
+.smart-status-ok {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(0, 230, 118, 0.08);
+  border-left: 3px solid var(--green);
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--green);
+  font-weight: 600;
+}
+
+.smart-status-ok i {
+  font-size: 16px;
+}
+
+.smart-unavailable {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  background: rgba(255, 179, 0, 0.08);
+  border: 1px dashed var(--border2);
+  border-radius: 6px;
+  color: var(--muted);
+}
+
+.smart-icon {
+  font-size: 32px;
+}
+
+.smart-unavailable h3 {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.smart-unavailable p {
+  font-size: 12px;
+  margin: 0;
+}
+
+.smart-hint {
+  color: var(--yellow);
+  margin-top: 8px;
+}
+
+.smart-unavailable code {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 6px 10px;
+  background: rgba(93, 106, 133, 0.2);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ─── Mobile Responsive ─── */
+@media (max-width: 768px) {
+  .smart-header {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .smart-summary {
+    width: 100%;
+    justify-content: space-around;
+  }
+
+  .disk-metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

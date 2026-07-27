@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Connexion — VIGIL</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="stylesheet" href="/static/login/login.css" />
+  </head>
+  <body class="login-page">
+    <!-- Grille de fond animée -->
+    <div class="login-bg">
+      <div class="grid-overlay"></div>
+      <div class="glow-orb glow-1"></div>
+      <div class="glow-orb glow-2"></div>
+    </div>
+
+    <div class="login-wrap">
+      <!-- En-tête logo -->
+      <div class="login-logo">
+        <div class="login-logo-text">VIGIL</div>
+        <div class="login-logo-sub">MONITORING SYSTEM v2.0</div>
+      </div>
+
+      <!-- Carte formulaire -->
+      <div class="login-card">
+        <div class="login-card-header">
+          <div class="login-card-title">
+            {{ 'Créer un compte' if create else 'Accès sécurisé' }}
+          </div>
+          <div class="login-card-sub">
+            {{ 'Définissez vos identifiants' if create else 'Entrez vos
+            identifiants pour continuer' }}
+          </div>
+        </div>
+
+        {% if error %}
+        <div class="login-alert login-alert-error" id="login-error">
+          <span class="alert-bar"></span>
+          <span class="alert-text">{{ error }}</span>
+        </div>
+        {% endif %}
+
+        <form method="post" id="login-form" novalidate>
+          <div class="field-group" id="field-username">
+            <label class="field-label" for="username">Utilisateur</label>
+            <div class="field-input-wrap">
+              <svg
+                class="field-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+              <input
+                id="username"
+                type="text"
+                name="username"
+                placeholder="Nom d'utilisateur"
+                autocomplete="username"
+                spellcheck="false"
+              />
+            </div>
+            <div class="field-error" id="error-username"></div>
+          </div>
+
+          <div class="field-group" id="field-password">
+            <label class="field-label" for="password">Mot de passe</label>
+            <div class="field-input-wrap">
+              <svg
+                class="field-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+              <input
+                id="password"
+                type="password"
+                name="password"
+                placeholder="••••••••"
+                autocomplete="{{ 'new-password' if create else 'current-password' }}"
+              />
+              <button
+                type="button"
+                class="toggle-password"
+                id="toggle-pwd"
+                tabindex="-1"
+              >
+                <svg
+                  id="eye-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              </button>
+            </div>
+            <div class="field-error" id="error-password"></div>
+          </div>
+
+          <button type="submit" class="login-btn" id="login-btn">
+            <span class="btn-text"
+              >{{ 'Créer le compte' if create else 'Se connecter' }}</span
+            >
+            <span class="btn-loader" id="btn-loader"></span>
+            <svg
+              class="btn-arrow"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+            >
+              <path d="M5 12h14M12 5l7 7-7 7" />
+            </svg>
+          </button>
+        </form>
+      </div>
+
+      <!-- Pied de page -->
+      <div class="login-footer">
+        <span class="login-footer-dot"></span>
+        Système sécurisé — accès réservé aux administrateurs
+      </div>
+    </div>
+
+    <script src="/static/login/login.js"></script>
+  </body>
+</html>
