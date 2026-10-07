@@ -42,6 +42,14 @@ def _get_smartctl_path() -> str:
             os.path.join(base, "bin", "linux", "smartctl"),
             os.path.join(base, "bin", "smartctl"),
         ]
+    elif system == "darwin":
+        # macOS : pas de binaire bundlé, smartctl vient de Homebrew
+        possible = [
+            "/opt/homebrew/sbin/smartctl",
+            "/opt/homebrew/bin/smartctl",
+            "/usr/local/sbin/smartctl",
+            "/usr/local/bin/smartctl",
+        ]
     else:
         possible = [
             os.path.join(base, "bins", "linux-x86_64", "smartctl"),
@@ -86,6 +94,16 @@ def _detect_disks() -> list:
                 drives.append(f"{letter}:")
             bitmask >>= 1
         return drives if drives else ["C:"]
+
+    elif system == "darwin":
+        # macOS : le disque interne est /dev/disk0 (pas de /dev/sdX)
+        # noms entiers disk0, disk1… (on exclut les slices disk0s1)
+        disks = [
+            f"/dev/{name}"
+            for name in sorted(os.listdir("/dev"))
+            if name.startswith("disk") and name[4:].isdigit()
+        ]
+        return disks if disks else ["/dev/disk0"]
 
     else:
         # Linux : chercher /dev/sdX et /dev/nvme0
