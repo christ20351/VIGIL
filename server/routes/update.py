@@ -35,22 +35,15 @@ def register(app):
             data.pop("offline_since", None)
 
             is_new = hostname not in app.state.computers_data
-            # stocker historique
+            # stocker historique (batch non bloquant)
             try:
                 from db.storage import insert_metric
 
-                insert_metric(hostname, data)
+                insert_metric(hostname, data, force=is_new)
             except Exception:
                 pass
 
             app.state.computers_data[hostname] = data
-            # persistence (deux fois pour compatibilité historique)
-            try:
-                from db.storage import insert_metric
-
-                insert_metric(hostname, data)
-            except Exception:
-                pass
 
             cpu = data.get("cpu_percent", 0)
             ram = data.get("memory", {}).get("percent", 0)
@@ -64,7 +57,7 @@ def register(app):
                 from websocket_handler import _check_thresholds, client_manager
 
                 # vérifier les seuils et envoyer des alertes éventuelles
-                alerts = _check_thresholds(hostname, data)
+                alerts = _check_thresholds(hostname, data, {})
                 for msg in alerts:
                     # persist the alert in DB when possible
                     try:

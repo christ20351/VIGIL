@@ -76,7 +76,13 @@ async def auth_middleware(request: Request, call_next):
                 return JSONResponse({"error": "not authenticated"}, status_code=401)
             else:
                 return RedirectResponse("/login")
-    return await call_next(request)
+    response = await call_next(request)
+    # Les assets statiques doivent toujours être revalidés : sans cet en-tête,
+    # le cache heuristique du navigateur peut servir des fichiers obsolètes
+    # (écrans qui semblent ne jamais changer après une mise à jour).
+    if request.url.path.startswith("/static"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 # Mount static files — chemin absolu résolu selon contexte
@@ -85,6 +91,27 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 # Templates — chemin absolu résolu selon contexte
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
+
+def _compute_asset_version() -> str:
+    """Version des assets statiques (mtime le plus récent des .js/.css).
+
+    Injectée en query string (?v=...) dans index.html : toute modification
+    d'un fichier statique change l'URL vue par le navigateur et contourne
+    son cache sans intervention manuelle.
+    """
+    latest = 0.0
+    if STATIC_DIR.exists():
+        for path in STATIC_DIR.rglob("*"):
+            if path.is_file() and path.suffix in (".js", ".css"):
+                try:
+                    latest = max(latest, path.stat().st_mtime)
+                except OSError:
+                    continue
+    return str(int(latest))
+
+
+templates.env.globals["ASSET_V"] = _compute_asset_version()
+
 # Data partagée
 computers_data = {}
 
@@ -92,12 +119,36 @@ computers_data = {}
 try:
     init_db()
 
+    import db.storage as _storage
+
+    _storage.configure(
+        storage_interval=config.METRICS_STORAGE_INTERVAL,
+        detail_interval=config.METRICS_DETAIL_INTERVAL,
+    )
+
     def _pruner():
         import time
 
+        # première purge rapide au démarrage (utile si le serveur redémarre
+        # souvent), puis cadence régulière configurable
+        interval = max(60, int(getattr(config, "PRUNE_INTERVAL_MINUTES", 60)) * 60)
+        first = True
         while True:
-            time.sleep(24 * 3600)
-            prune_older_than(30)
+            time.sleep(60 if first else interval)
+            first = False
+            try:
+                _storage.configure(
+                    storage_interval=config.METRICS_STORAGE_INTERVAL,
+                    detail_interval=config.METRICS_DETAIL_INTERVAL,
+                )
+                prune_older_than(
+                    days=int(getattr(config, "RETENTION_DAYS", 30)),
+                    notification_days=int(
+                        getattr(config, "NOTIFICATION_RETENTION_DAYS", 90)
+                    ),
+                )
+            except Exception as e:
+                print(f"[WARNING] Prune error: {e}")
 
     threading.Thread(target=_pruner, daemon=True).start()
 except Exception:
@@ -116,6 +167,22 @@ setup_websocket(app, computers_data)
 # Nettoyage en arrière-plan
 clean_old_data(computers_data)
 
+# Démarrage de l'Agent IA Autonome de surveillance en arrière-plan
+try:
+    import notify_out
+
+    notify_out.setup(config)
+except Exception as e:
+    print(f"[WARNING] Could not start outbound notifier: {e}")
+
+try:
+    from ai.autonomous_agent import AutonomousAgentWatchdog
+    watchdog = AutonomousAgentWatchdog(computers_data, check_interval=30)
+    watchdog.start()
+    app.state.ai_watchdog = watchdog
+except Exception as e:
+    print(f"[WARNING] Could not start Autonomous AI Watchdog: {e}")
+
 
 # ================================================================
 #  POINT D'ENTRÉE
@@ -128,7 +195,7 @@ if __name__ == "__main__":
         default="web",
         help="Mode d'affichage: web (défaut) ou terminal",
     )
-    args = parser.parse_args()
+    args, _unknown = parser.parse_known_args()
 
     os.system("cls" if sys.platform == "win32" else "clear")
     print("=" * 60)

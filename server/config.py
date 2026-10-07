@@ -33,6 +33,12 @@ _default = {
     "ALLOWED_CLIENT_IPS": [],
     "ENABLE_AUTH": False,
     "AUTH_TOKEN": "votre-token-secret-ici",
+    # Durée de vie d'une session web (heures) — 0 = sessions illimitées
+    "SESSION_TTL_HOURS": 168,
+    # Cookies Secure (uniquement si servi en HTTPS)
+    "COOKIE_SECURE": False,
+    # Nb max d'échecs de login par IP avant blocage temporaire
+    "LOGIN_MAX_ATTEMPTS": 10,
     "TIMEOUT": 60,
     "PROCESS_LIMIT": 100,
     "NETWORK_CONN_LIMIT": 100,
@@ -40,6 +46,86 @@ _default = {
     "CPU_ALERT_DURATION": 25,
     "RAM_ALERT_THRESHOLD": 95,
     "DISK_ALERT_THRESHOLD": 90,
+    # ── Performance / stockage ─────────────────────────────
+    # Fréquence min. d'écriture des métriques en base (s) — 1 = tout stocker
+    "METRICS_STORAGE_INTERVAL": 5,
+    # Fréquence d'écriture d'une ligne "détail" complète (processus, SMART...)
+    "METRICS_DETAIL_INTERVAL": 60,
+    # Intervalle entre deux purges de la base (minutes)
+    "PRUNE_INTERVAL_MINUTES": 60,
+    # Rétention des métriques (jours)
+    "RETENTION_DAYS": 30,
+    # Rétention des notifications (jours)
+    "NOTIFICATION_RETENTION_DAYS": 90,
+    # Diffuser le détail complet (processus/interfaces) à chaque navigateur
+    # chaque seconde — False = payload allégé (fortement recommandé)
+    "BROADCAST_FULL_DETAIL": False,
+    "AI_ENABLED": True,
+    "AI_PROVIDER": "auto_rule",
+    "AI_API_KEY": "",
+    "AI_MODEL": "llama3",
+    "AI_ENDPOINT": "http://localhost:11434",
+    # Timeout des appels au fournisseur LLM (s)
+    "AI_TIMEOUT": 60,
+    # Nb max de requêtes /api/ai/chat par IP et par minute
+    "AI_RATE_LIMIT_PER_MIN": 20,
+    # ── Vili — agent IA autonome ────────────────────────────
+    # Rythme des cycles d'analyse autonomes de Vili (s)
+    "AI_SCAN_INTERVAL": 300,
+    # Niveau d'autonomie : off | propose | auto
+    #   off     → analyse + notifications uniquement
+    #   propose → Vili suggère des commandes, l'admin les exécute en 1 clic
+    #   auto    → Vili exécute lui-même les commandes suggérées
+    "AI_AUTONOMOUS_ACTIONS": "propose",
+    # ── Commandes à distance (dashboard → agents) ───────────
+    # Exécution de commandes système sur les agents depuis l'interface.
+    # DANGEREUX si l'authentification est désactivée sur un réseau ouvert.
+    "AGENT_COMMANDS_ENABLED": False,
+    # Durée max d'exécution d'une commande distante (s)
+    "AGENT_COMMAND_TIMEOUT": 60,
+    # ── Base de données : sqlite | postgres ─────────────────
+    "DB_BACKEND": "sqlite",
+    "DB_HOST": "localhost",
+    "DB_PORT": 5432,
+    "DB_NAME": "vigil",
+    "DB_USER": "vigil",
+    "DB_PASSWORD": "",
+    # ── Intelligence Vili (AIOps) ───────────────────────────
+    # Écart (en σ) au-delà duquel une valeur est jugée anormale vs baseline
+    "ANOMALY_Z_THRESHOLD": 3.0,
+    # Fenêtre (heures) pour les prévisions de saturation
+    "FORECAST_WINDOW_HOURS": 48,
+    # Tempête d'incidents : nb de machines distinctes alertant simultanément
+    "STORM_MIN_HOSTS": 3,
+    "STORM_WINDOW_MIN": 10,
+    # Cooldown des règles de surveillance (s) entre deux alertes
+    "WATCH_RULE_COOLDOWN": 600,
+    # Rapport quotidien automatique de Vili (0/1 + heure d'envoi)
+    "DAILY_REPORT_ENABLED": True,
+    "DAILY_REPORT_HOUR": 8,
+    # ── Journal de sécurité (événements retenus côté serveur) ──
+    "SECURITY_EVENT_LOG_SIZE": 200,
+    # ── Alertes sortantes (webhook / email) ─────────────────
+    "ALERT_WEBHOOK_ENABLED": False,
+    "ALERT_WEBHOOK_URL": "",
+    "ALERT_EMAIL_ENABLED": False,
+    "ALERT_SMTP_HOST": "",
+    "ALERT_SMTP_PORT": 587,
+    "ALERT_SMTP_TLS": True,
+    "ALERT_SMTP_USER": "",
+    "ALERT_SMTP_PASSWORD": "",
+    "ALERT_EMAIL_FROM": "",
+    "ALERT_EMAIL_TO": "",
+    # Sévérité minimale dispatchée : info | warning | error
+    "ALERT_MIN_SEVERITY": "warning",
+    # ── Fédération multi-sites ──────────────────────────────
+    # Token partagé exigé par /api/federation/summary (header X-Fed-Token)
+    "FEDERATION_TOKEN": "",
+    # Nom affiché de ce site dans la vue fédérée
+    "FEDERATION_SITE_NAME": "Site local",
+    # Peers agrégés par la vue centrale : liste de {name, url, token}
+    "FEDERATION_PEERS": [],
+    "AI_SYSTEM_PROMPT": "Vous êtes Vili, le copilote d'administration système expert en monitoring et diagnostic d'infrastructure de la plateforme VIGIL.",
 }
 
 

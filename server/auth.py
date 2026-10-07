@@ -100,24 +100,42 @@ def _verify_password(stored_hash: str, password: str) -> bool:
 
 
 def make_token(username: str) -> str:
-    """Génère un jeton de session signé."""
+    """Génère un jeton de session signé avec date d'émission (expiry gérée à la vérification)."""
+    import time as _time
+
     secret = config.AUTH_TOKEN or ""
-    msg = username.encode()
+    issued = str(int(_time.time()))
+    msg = f"{username}:{issued}".encode()
     sig = hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()
-    return f"{username}:{sig}"
+    return f"{username}:{issued}:{sig}"
 
 
 def verify_session(token: Optional[str]) -> Optional[str]:
-    """Vérifie un cookie de session et retourne l'utilisateur s'il est valide."""
+    """Vérifie un cookie de session (signature + expiration) et retourne l'utilisateur s'il est valide."""
     if not token:
         return None
     try:
-        username, sig = token.split(":", 1)
+        parts = token.split(":")
+        if len(parts) != 3:
+            return None
+        username, issued, sig = parts
+        if not issued.isdigit():
+            return None
+        secret = (config.AUTH_TOKEN or "").encode()
         expected = hmac.new(
-            config.AUTH_TOKEN.encode(), username.encode(), hashlib.sha256
+            secret, f"{username}:{issued}".encode(), hashlib.sha256
         ).hexdigest()
-        if hmac.compare_digest(sig, expected):
-            return username
+        if not hmac.compare_digest(sig, expected):
+            return None
+
+        # Expiration : SESSION_TTL_HOURS heures après émission (0 = illimité)
+        ttl_hours = getattr(config, "SESSION_TTL_HOURS", 168) or 0
+        if ttl_hours > 0:
+            import time as _time
+
+            if _time.time() - int(issued) > ttl_hours * 3600:
+                return None
+        return username
     except Exception:
         pass
     return None

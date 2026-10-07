@@ -8,6 +8,15 @@
 // Support offline complet avec versions locales ou CDN
 
 let CHARTJS_OK = typeof Chart !== "undefined" && Chart.version;
+// rendu instantané des graphiques : pas d'animation (les mises à jour 1×/s
+// et les changements de plage deviennent immédiats)
+if (CHARTJS_OK) {
+  try {
+    Chart.defaults.animation = false;
+  } catch {
+    /* Chart.js trop ancien : on garde le comportement par défaut */
+  }
+}
 let LUCIDE_OK = typeof lucide !== "undefined" && lucide.createIcons;
 
 // Retry mechanism pour charger les CDN avec délai
@@ -60,7 +69,19 @@ let computersData = {};
 // session n'est plus valide (retourne 401). Cela évite au client de rester
 // bloqué lorsque l'auth est activée.
 async function vigilFetch(url, opts = {}) {
-  const res = await fetch(url, opts);
+  let res;
+  try {
+    res = await fetch(url, opts);
+  } catch (e) {
+    // TypeError "Failed to fetch" = serveur injoignable (arrêté, redémarrage
+    // ou panne réseau) — message explicite au lieu d'un générique.
+    if (e instanceof TypeError) {
+      throw new Error(
+        "Serveur VIGIL injoignable — vérifiez que le serveur est démarré (python server.py) puis rechargez la page",
+      );
+    }
+    throw e;
+  }
   if (res.status === 401) {
     window.location = "/login";
     throw new Error("not authenticated");
@@ -70,10 +91,6 @@ async function vigilFetch(url, opts = {}) {
 let currentHostname = null;
 let ws = null;
 let liveChart = null;
-
-// filtres appliqués à la liste des processus (pourcentage)
-let cpuFilter = 0;
-let ramFilter = 0;
 
 // historique des alertes (pour l'onglet Notifications)
 const alertsHistory = [];
@@ -91,30 +108,32 @@ function updateNotifBadge() {
   }).length;
   span.textContent = n > 0 ? n : "";
   span.style.display = n > 0 ? "inline-block" : "none";
+
+  // badge de la cloche (topbar)
+  const bellBadge = document.getElementById("topbar-bell-badge");
+  if (bellBadge) {
+    bellBadge.textContent = n > 0 ? String(n) : "";
+    bellBadge.style.display = n > 0 ? "flex" : "none";
+  }
 }
 
-// affichage d'alertes temporaires
-function showAlert(msg) {
-  const container = document.getElementById("alerts");
-  if (!container) return;
-  const el = document.createElement("div");
-  // use explicit severity if provided by server, fallback to info
-  const sev = msg.severity || "info";
-  const sevClass = `sev-${sev}`;
-  el.className = `alert ${sevClass}`;
-  const when = msg.timestamp
-    ? ` [${new Date(msg.timestamp).toLocaleTimeString()}]`
-    : "";
-  // inclure icône visuelle
-  const icon = LUCIDE_OK
-    ? `<i data-lucide="bell" class="alert-icon"></i> `
-    : "";
-  el.innerHTML = `${icon}${when} ${msg.hostname ? `[${msg.hostname}] ` : ""}${msg.message || ""}`;
-  container.appendChild(el);
-  setTimeout(() => el.remove(), 10000);
+// échappement HTML pour toutes les valeurs dynamiques injectées en innerHTML
+function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
 
-  // stocker pour consultation dans l'onglet Notifications
-  // normalize stored object to always include severity
+// ─── NOTIFICATIONS TEMPS RÉEL ─────────────────────────────────────
+// Les alertes n'apparaissent JAMAIS par-dessus l'interface : elles
+// alimentent le badge de la cloche, le panneau latéral s'il est
+// ouvert, et le journal.
+function showAlert(msg) {
+  // historique de session + badges
   alertsHistory.push({
     timestamp: msg.timestamp,
     hostname: msg.hostname,
@@ -123,11 +142,145 @@ function showAlert(msg) {
   });
   updateNotifBadge();
 
-  // si nous sommes actuellement dans la vue notifications, redessiner sans
-  // marquer comme lue afin que le badge réapparaisse pour les nouveaux items
+  // insertion live en tête du panneau s'il est ouvert
+  if (typeof notifPanelOpen !== "undefined" && notifPanelOpen) {
+    const list = document.getElementById("notif-panel-list");
+    if (list) {
+      list.querySelector(".np-empty")?.remove();
+      list.insertAdjacentHTML("afterbegin", notifPanelItemHTML(msg, true));
+      if (typeof refreshIcons === "function") refreshIcons();
+    }
+  }
+
+  // pulse de la cloche (seul signal visuel hors panneau)
+  const bell = document.getElementById("topbar-bell");
+  if (bell) {
+    bell.classList.remove("pulse");
+    void bell.offsetWidth; // relance l'animation
+    bell.classList.add("pulse");
+  }
+
+  // si la vue journal est ouverte, la rafraîchir sans marquer comme lu
   if (document.querySelector(".notifications-container")) {
     renderNotificationsView();
   }
+}
+
+// ─── PANNEAU DE NOTIFICATIONS ─────────────────────────────────────
+let notifPanelOpen = false;
+let notifPanelLoaded = false;
+
+function toggleNotifPanel(force) {
+  const panel = document.getElementById("notif-panel");
+  if (!panel) return;
+  const open = force !== undefined ? force : !panel.classList.contains("open");
+  panel.classList.toggle("open", open);
+  notifPanelOpen = open;
+  if (open) {
+    markAllNotifsRead();
+    renderNotifPanel();
+  }
+}
+
+async function renderNotifPanel() {
+  const list = document.getElementById("notif-panel-list");
+  if (!list) return;
+
+  // fusion : alertes live de la session + historique persisté (24h)
+  const persisted = notifPanelLoaded ? [] : await fetchPersistedNotifs();
+  notifPanelLoaded = true;
+  const seen = new Set();
+  const items = [];
+  const key = (a) => `${a.timestamp}|${a.message}`;
+  persisted.forEach((a) => {
+    const k = key(a);
+    if (!seen.has(k)) { seen.add(k); items.push(a); }
+  });
+  alertsHistory.forEach((a) => {
+    const k = key(a);
+    if (!seen.has(k)) { seen.add(k); items.push(a); }
+  });
+  items.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+
+  const recent = items.slice(0, 50);
+  if (!recent.length) {
+    list.innerHTML = `
+      <div class="np-empty">
+        <i data-lucide="bell-off"></i>
+        <div>Aucune notification sur les dernières 24 h.</div>
+      </div>`;
+    refreshIcons();
+    return;
+  }
+  list.innerHTML = recent.map((a) => notifPanelItemHTML(a)).join("");
+  refreshIcons();
+}
+
+function notifPanelItemHTML(a, flash = false) {
+  const sev = a.severity || "info";
+  const icon = sev === "error" || sev === "warning" ? "alert-triangle" : "info";
+  const t = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+  const unread = t > lastSeenNotifTime;
+  return `
+    <div class="np-item sev-${sev} ${unread ? "unread" : ""} ${flash ? "flash" : ""}">
+      <div class="np-icon"><i data-lucide="${icon}"></i></div>
+      <div class="np-body">
+        <div class="np-msg">${escapeHtml(a.message || "")}</div>
+        <div class="np-meta">
+          ${a.hostname ? `<span class="np-host">${escapeHtml(a.hostname)}</span>` : ""}
+          <span>${timeAgo(a.timestamp)}</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function fetchPersistedNotifs() {
+  try {
+    const res = await vigilFetch("/api/notifications?hours=24");
+    const json = await res.json();
+    return (json?.notifications || []).slice(0, 50);
+  } catch {
+    return [];
+  }
+}
+
+function markAllNotifsRead() {
+  lastSeenNotifTime = Date.now();
+  updateNotifBadge();
+}
+
+// depuis le panneau : bascule vers la vue journal complète
+function openNotifsJournal() {
+  toggleNotifPanel(false);
+  document
+    .querySelectorAll(".nav-item")
+    .forEach((i) => i.classList.remove("active"));
+  const nav = [...document.querySelectorAll(".nav-item")].find(
+    (n) =>
+      (n.querySelector(".nav-text")?.textContent || n.textContent || "")
+        .trim().toLowerCase() === "notifications",
+  );
+  if (nav) nav.classList.add("active");
+  if (typeof window.setPageTitle === "function") {
+    window.setPageTitle("Notifications", "JOURNAL DES ALERTES SYSTÈME");
+  }
+  renderNotificationsView(12, true);
+}
+
+// affichage relatif « il y a … »
+function timeAgo(ts) {
+  if (!ts) return "";
+  const s = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+  if (isNaN(s)) return "";
+  if (s < 60) return "à l'instant";
+  if (s < 3600) return `il y a ${Math.floor(s / 60)} min`;
+  if (s < 86400) return `il y a ${Math.floor(s / 3600)} h`;
+  const d = new Date(ts);
+  return (
+    d.toLocaleDateString("fr", { day: "numeric", month: "short" }) +
+    " " +
+    d.toLocaleTimeString("fr", { hour: "2-digit", minute: "2-digit" })
+  );
 }
 
 const MAX_POINTS = 40;
@@ -151,6 +304,28 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("modal").addEventListener("click", (e) => {
     if (e.target === document.getElementById("modal")) closeModal();
   });
+  // fermeture clavier (Échap) pour plus d'intuitivité
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (document.getElementById("modal").classList.contains("open")) {
+      closeModal();
+    }
+    if (
+      typeof notifPanelOpen !== "undefined" &&
+      notifPanelOpen &&
+      document.getElementById("notif-panel")?.classList.contains("open")
+    ) {
+      toggleNotifPanel(false);
+    }
+  });
+
+  // Titres contextuels affichés dans la topbar selon la vue active
+  window.setPageTitle = (title, subtitle) => {
+    const t = document.getElementById("page-title");
+    const s = document.getElementById("page-subtitle");
+    if (t && title) t.textContent = title;
+    if (s && subtitle) s.textContent = subtitle;
+  };
 
   // structure initiale de contenu (dashboard)
   const initialContentHTML = document.querySelector(".content").innerHTML;
@@ -167,6 +342,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // hookup sidebar navigation
   document.querySelectorAll(".nav-item").forEach((item) => {
     item.onclick = () => {
+      const prevActive = document.querySelector(".nav-item.active");
       document
         .querySelectorAll(".nav-item")
         .forEach((i) => i.classList.remove("active"));
@@ -179,6 +355,10 @@ document.addEventListener("DOMContentLoaded", () => {
         case "dashboard":
         case "agents":
           resetDashboardView();
+          setPageTitle(
+            text === "agents" ? "Agents" : "Dashboard",
+            "SUPERVISION · PARC MACHINES",
+          );
           if (typeof renderDashboardView === "function") {
             renderDashboardView();
           } else {
@@ -188,20 +368,36 @@ document.addEventListener("DOMContentLoaded", () => {
         case "activité":
         case "activite":
           resetDashboardView();
+          setPageTitle("Activité", "HISTORIQUE CPU · RAM · DISQUE");
           renderActivityView();
           break;
         case "notifications":
-          resetDashboardView();
-          renderNotificationsView(12, true); // ouverture manuelle marque comme lue — défaut 12h
+          // déroule le panneau temps réel sans quitter la vue courante
+          if (typeof toggleNotifPanel === "function") toggleNotifPanel();
+          if (prevActive) prevActive.classList.add("active");
+          item.classList.remove("active");
           break;
         case "paramètres":
         case "parametres":
           resetDashboardView();
+          setPageTitle("Paramètres", "CONFIGURATION DU SERVEUR VIGIL");
           renderSettingsView();
+          break;
+        case "ia copilote":
+        case "copilote":
+        case "ia":
+          resetDashboardView();
+          setPageTitle("IA Copilote", "VILI · DIAGNOSTICS INTELLIGENTS");
+          if (typeof renderAiView === "function") {
+            renderAiView();
+          } else {
+            document.querySelector(".content").innerHTML = '<p>Chargement de Vili...</p>';
+          }
           break;
         case "sécurité":
         case "securite":
           resetDashboardView();
+          setPageTitle("Sécurité", "POSTURE DE SÉCURITÉ DU PARC");
           if (typeof renderSecurityView === "function") {
             renderSecurityView();
           } else {
@@ -209,8 +405,20 @@ document.addEventListener("DOMContentLoaded", () => {
               '<p class="security-placeholder">Fonctionnalité de sécurité en cours de développement.</p>';
           }
           break;
+        case "parc & sites":
+        case "parc et sites":
+        case "parc":
+          resetDashboardView();
+          setPageTitle("Parc & Sites", "GROUPES · INVENTAIRE · FÉDÉRATION");
+          if (typeof renderFleetView === "function") {
+            renderFleetView();
+          } else {
+            document.querySelector(".content").innerHTML = '<p>Chargement du parc…</p>';
+          }
+          break;
         default:
           resetDashboardView();
+          setPageTitle("Dashboard", "SUPERVISION · PARC MACHINES");
           renderComputers();
       }
     };
@@ -358,6 +566,60 @@ function clamp(v, mn, mx) {
 }
 
 // ─── WEBSOCKET ────────────────────────────────────────────────────
+
+// ─── DÉTAIL À LA DEMANDE ──────────────────────────────────────────
+// Le flux WS est allégé : les sections détaillées (processus, interfaces,
+// connexions) sont récupérées via l'API quand un onglet en a besoin.
+let detailTimer = null;
+
+async function fetchHostDetail(hostname) {
+  if (!hostname || !computersData[hostname]) return;
+  try {
+    const res = await vigilFetch(
+      `/api/computers/${encodeURIComponent(hostname)}`,
+    );
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data || !computersData[hostname]) return;
+    computersData[hostname] = Object.assign(computersData[hostname], data);
+
+    if (
+      currentHostname === hostname &&
+      document.getElementById("modal").classList.contains("open")
+    ) {
+      const active = document.querySelector(".tab-content.active");
+      const d = computersData[hostname];
+      if (active?.id === "tab-processes") renderProcesses(d);
+      if (active?.id === "tab-network") renderNetwork(d);
+      if (active?.id === "tab-protocols") renderProtocols(d);
+    }
+  } catch {
+    /* détail indisponible (agent déconnecté) */
+  }
+}
+
+function startDetailPolling(hostname) {
+  stopDetailPolling();
+  fetchHostDetail(hostname);
+  detailTimer = setInterval(() => {
+    if (
+      currentHostname === hostname &&
+      document.getElementById("modal")?.classList.contains("open")
+    ) {
+      fetchHostDetail(hostname);
+    } else {
+      stopDetailPolling();
+    }
+  }, 5000);
+}
+
+function stopDetailPolling() {
+  if (detailTimer) {
+    clearInterval(detailTimer);
+    detailTimer = null;
+  }
+}
+
 function initWebSocket() {
   // reconnect loop
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -396,8 +658,14 @@ function initWebSocket() {
           const msg = JSON.parse(e.data);
 
           if (msg.type === "update" && msg.data) {
-            computersData = msg.data;
-            Object.keys(computersData).forEach((h) => {
+            // Fusion : le flux seconde/seconde est volontairement allégé
+            // (sans processus/interfaces/connexions détaillées). On conserve
+            // donc les clés déjà connues et on complète avec le flux.
+            Object.keys(msg.data).forEach((h) => {
+              computersData[h] = Object.assign(
+                computersData[h] || {},
+                msg.data[h] || {},
+              );
               if (!chartHistory[h])
                 chartHistory[h] = { cpu: [], ram: [], disk: [], labels: [] };
               pushHistory(h, computersData[h]);
@@ -448,6 +716,14 @@ function initWebSocket() {
               updateHistoryChart(msg.hostname);
             }
           }
+          if (msg.type === "approval_request" && msg.id) {
+            showApprovalCard(msg);
+          }
+
+          if (msg.type === "approval_done" && msg.id) {
+            removeApprovalCard(msg.id);
+          }
+
           if (msg.type === "alert") {
             // message d'alerte générique
             showAlert(msg);
@@ -542,8 +818,19 @@ function hideLoader() {
   if (l) l.style.display = "none";
 }
 
-async function fetchHistory(hostname, hours = 24) {
+const HISTORY_TTL_MS = 60000; // revalidation après 1 minute
+const historyCacheMeta = {}; // clé "host|heures" → timestamp de récupération
+
+async function fetchHistory(hostname, hours = 24, { force = false } = {}) {
   currentActivityHours = hours;
+  const key = `${hostname}|${hours}`;
+  const cached = historyCache[key];
+  const fetchedAt = historyCacheMeta[key] || 0;
+  // cache par (hôte, plage) : basculer 24h ↔ 7j est instantané
+  if (!force && cached && Date.now() - fetchedAt < HISTORY_TTL_MS) {
+    historyCache[hostname] = cached;
+    return cached;
+  }
   try {
     const res = await vigilFetch(
       `/api/history/${encodeURIComponent(hostname)}?hours=${hours}`,
@@ -561,6 +848,8 @@ async function fetchHistory(hostname, hours = 24) {
         h.disk.push(+(data.disk?.percent || 0).toFixed(1));
       });
       // store fetched history separately from live stream data
+      historyCache[key] = h;
+      historyCacheMeta[key] = Date.now();
       historyCache[hostname] = h;
     }
     return historyCache[hostname] || null;
@@ -628,6 +917,11 @@ function renderOverview(hostname) {
             ? `<div class="sysinfo-row"><span class="sysinfo-key">DEPUIS</span><span class="sysinfo-val">${new Date(data.offline_since).toLocaleString()}</span></div>`
             : ""
         }
+        <div style="margin-top:0.75rem; text-align:center;">
+          <button class="btn-ai-diagnose" onclick="triggerAgentAiDiagnosis('${hostname}')">
+            <i data-lucide="bot"></i> Lancer le Diagnostic IA
+          </button>
+        </div>
       </div>
     </div>
 
@@ -745,137 +1039,142 @@ function updateLiveChart(hostname) {
 
 // ─── PROCESSUS ────────────────────────────────────────────────────
 function renderProcesses(data) {
-  const procs = data.processes || [];
-  // appliquer les filtres
-  const filtered = procs.filter(
-    (p) =>
-      (p.cpu_percent || 0) >= cpuFilter && (p.memory_percent || 0) >= ramFilter,
-  );
-
-  document.getElementById("tab-processes").innerHTML = `
-    <div class="proc-header">
-      <span class="section-label">Processus actifs</span>
-      <div class="proc-filters">
-        <label>CPU ≥ <input type="number" id="filter-cpu" min="0" max="100" value="${cpuFilter}" style="width:50px"></label>
-        <label>RAM ≥ <input type="number" id="filter-ram" min="0" max="100" value="${ramFilter}" style="width:50px"></label>
-      </div>
-      <span class="proc-count">${filtered.length} processus</span>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th>NOM</th><th>CPU %</th><th>RAM %</th><th>RAM (MB)</th><th>IO LUS</th><th>IO ÉCRITS</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${filtered
-          .map(
-            (p) => `
-          <tr>
-            <td class="td-name" title="${p.name || ""}">${p.name || "N/A"}</td>
-            <td class="td-cpu">${(p.cpu_percent || 0).toFixed(1)}%</td>
-            <td class="td-ram">${(p.memory_percent || 0).toFixed(1)}%</td>
-            <td>${((p.memory_rss || 0) / 1e6).toFixed(1)} MB</td>
-            <td>${((p.io_read_bytes || 0) / 1e6).toFixed(1)} MB</td>
-            <td>${((p.io_write_bytes || 0) / 1e6).toFixed(1)} MB</td>
-          </tr>`,
-          )
-          .join("")}
-      </tbody>
-    </table>
-  `;
-
-  // lier les contrôles des seuils aux variables et rafraîchir au changement
-  const cpuInput = document.getElementById("filter-cpu");
-  const ramInput = document.getElementById("filter-ram");
-  if (cpuInput) {
-    cpuInput.oninput = () => {
-      cpuFilter = Number(cpuInput.value) || 0;
-      renderProcesses(data);
-    };
+  if (typeof window.renderProcesses === "function" && window.renderProcesses !== renderProcesses) {
+    return window.renderProcesses(data);
   }
-  if (ramInput) {
-    ramInput.oninput = () => {
-      ramFilter = Number(ramInput.value) || 0;
-      renderProcesses(data);
-    };
-  }
-
-  refreshIcons();
 }
 
 // ─── RÉSEAU ───────────────────────────────────────────────────────
 function renderNetwork(data) {
-  const net = data.network || {};
-  const fmt = (v) => (isNaN(v) ? "0" : v);
-  document.getElementById("tab-network").innerHTML = `
-    <div class="net-grid">
-      <div class="net-card">
-        <div class="net-card-title"><i data-lucide="arrow-down-circle"></i> DÉBIT ENTRANT</div>
-        <div class="net-stat"><span class="net-key">DÉBIT/s</span><span class="net-val" style="color:var(--green)">${fmt((net.bytes_recv_per_sec / 1024).toFixed(1))} KB/s</span></div>
-        <div class="net-stat"><span class="net-key">TOTAL REÇU</span><span class="net-val">${fmt((net.bytes_recv / 1e9).toFixed(2))} GB</span></div>
-      </div>
-      <div class="net-card">
-        <div class="net-card-title"><i data-lucide="arrow-up-circle"></i> DÉBIT SORTANT</div>
-        <div class="net-stat"><span class="net-key">DÉBIT/s</span><span class="net-val" style="color:var(--cpu)">${fmt((net.bytes_sent_per_sec / 1024).toFixed(1))} KB/s</span></div>
-        <div class="net-stat"><span class="net-key">TOTAL ENVOYÉ</span><span class="net-val">${fmt((net.bytes_sent / 1e9).toFixed(2))} GB</span></div>
-      </div>
-      <div class="net-card">
-        <div class="net-card-title"><i data-lucide="zap"></i> CONNEXIONS</div>
-        <div class="net-stat"><span class="net-key">ACTIVES</span><span class="net-val" style="color:var(--accent)">${net.active_connections || 0}</span></div>
-      </div>
-    </div>
-  `;
-  // lier les contrôles de filtre pour rafraîchir la vue quand ils changent
-  const cpuInput = document.getElementById("filter-cpu");
-  const ramInput = document.getElementById("filter-ram");
-  if (cpuInput) {
-    cpuInput.oninput = () => {
-      cpuFilter = Number(cpuInput.value) || 0;
-      renderProcesses(data);
-    };
+  if (typeof window.renderNetwork === "function" && window.renderNetwork !== renderNetwork) {
+    return window.renderNetwork(data);
   }
-  if (ramInput) {
-    ramInput.oninput = () => {
-      ramFilter = Number(ramInput.value) || 0;
-      renderProcesses(data);
-    };
-  }
-
-  refreshIcons();
 }
 
 // ─── PROTOCOLES ───────────────────────────────────────────────────
 function renderProtocols(data) {
-  const proto = data.protocols || {};
-  let html = '<div class="proto-grid">';
-
-  if (proto.tcp)
-    html += `
-    <div class="proto-card">
-      <div class="proto-title" style="color:var(--accent)"><i data-lucide="radio"></i> TCP</div>
-      <div class="proto-stat"><span class="proto-key">Établies</span><span class="proto-val" style="color:var(--green)">${proto.tcp.established || 0}</span></div>
-      <div class="proto-stat"><span class="proto-key">En écoute</span><span class="proto-val">${proto.tcp.listen || 0}</span></div>
-      <div class="proto-stat"><span class="proto-key">TIME_WAIT</span><span class="proto-val" style="color:var(--yellow)">${proto.tcp.time_wait || 0}</span></div>
-      <div class="proto-stat"><span class="proto-key">CLOSE_WAIT</span><span class="proto-val" style="color:var(--red)">${proto.tcp.close_wait || 0}</span></div>
-    </div>`;
-
-  if (proto.udp)
-    html += `
-    <div class="proto-card">
-      <div class="proto-title" style="color:var(--yellow)"><i data-lucide="radio-tower"></i> UDP</div>
-      <div class="proto-stat"><span class="proto-key">Total</span><span class="proto-val">${proto.udp.total || 0}</span></div>
-      <div class="proto-stat"><span class="proto-key">Connexions actives</span><span class="proto-val">${(proto.udp.connections || []).length}</span></div>
-    </div>`;
-
-  if (proto.total !== undefined)
-    html += `
-    <div class="proto-card">
-      <div class="proto-title" style="color:var(--muted)"><i data-lucide="bar-chart-2"></i> TOTAL</div>
-      <div class="proto-stat"><span class="proto-key">Connexions réseau</span><span class="proto-val" style="color:var(--accent)">${proto.total}</span></div>
-    </div>`;
-
-  html += "</div>";
-  document.getElementById("tab-protocols").innerHTML = html;
-  refreshIcons();
+  if (typeof window.renderProtocols === "function" && window.renderProtocols !== renderProtocols) {
+    return window.renderProtocols(data);
+  }
 }
+
+// ─── DEMANDES D'AUTORISATION VILI (Oui / Non) ─────────────────────
+// Vili demande l'autorisation d'exécuter une commande : carte flottante
+// interactive en bas à droite, persistée tant que l'admin n'a pas tranché.
+
+const _approvalDeciding = new Set();
+
+function ensureApprovalContainer() {
+  let c = document.getElementById("approval-container");
+  if (!c) {
+    c = document.createElement("div");
+    c.id = "approval-container";
+    c.className = "approval-container";
+    document.body.appendChild(c);
+  }
+  return c;
+}
+
+function showApprovalCard(req) {
+  if (!req || req.id == null) return;
+  const container = ensureApprovalContainer();
+  if (document.getElementById(`approval-card-${req.id}`)) return;
+
+  const card = document.createElement("div");
+  card.className = "approval-card";
+  card.id = `approval-card-${req.id}`;
+  card.innerHTML = `
+    <div class="approval-head">
+      <span class="approval-avatar"><i data-lucide="bot"></i></span>
+      <div>
+        <div class="approval-title">Vili demande votre autorisation</div>
+        <div class="approval-sub">Exécuter sur <strong>${escapeHtml(req.hostname || "?")}</strong></div>
+      </div>
+    </div>
+    ${req.reason ? `<div class="approval-reason">${escapeHtml(req.reason)}</div>` : ""}
+    <code class="approval-command">${escapeHtml(req.command || "")}</code>
+    <div class="approval-actions">
+      <button class="approval-btn approve" onclick="decideApproval(${req.id}, true)">
+        <i data-lucide="check"></i> Effectuer l'action
+      </button>
+      <button class="approval-btn reject" onclick="decideApproval(${req.id}, false)">
+        <i data-lucide="x"></i> Refuser
+      </button>
+    </div>
+  `;
+  container.appendChild(card);
+  refreshIcons();
+  // animation d'entrée
+  requestAnimationFrame(() => card.classList.add("visible"));
+}
+
+function removeApprovalCard(id) {
+  const card = document.getElementById(`approval-card-${id}`);
+  if (!card) return;
+  card.classList.remove("visible");
+  setTimeout(() => card.remove(), 350);
+}
+
+async function decideApproval(id, approved) {
+  if (_approvalDeciding.has(id)) return;
+  _approvalDeciding.add(id);
+  const card = document.getElementById(`approval-card-${id}`);
+  card?.querySelectorAll(".approval-btn").forEach((b) => (b.disabled = true));
+  try {
+    const res = await vigilFetch(`/api/ai/approvals/${id}/decide`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approved }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (approved && data.status === "executed") {
+      const out = data.approval?.result;
+      showAlert({
+        hostname: data.approval?.hostname,
+        message: `✅ Commande Vili exécutée (${out?.exit_code ?? "?"}) : ${(out?.stdout || out?.stderr || out?.error || "").slice(0, 160)}`,
+        severity: out?.ok ? "info" : "error",
+        timestamp: new Date().toISOString(),
+      });
+    } else if (data.status === "refused") {
+      showAlert({
+        message: "🚫 Commande de Vili refusée.",
+        severity: "info",
+        timestamp: new Date().toISOString(),
+      });
+    } else if (data.status === "approved_but_offline") {
+      showAlert({
+        message: "⚠️ Commande approuvée mais l'agent est hors ligne.",
+        severity: "error",
+        timestamp: new Date().toISOString(),
+      });
+    }
+  } catch (e) {
+    showAlert({
+      message: `Erreur décision : ${e.message}`,
+      severity: "error",
+      timestamp: new Date().toISOString(),
+    });
+  } finally {
+    _approvalDeciding.delete(id);
+    removeApprovalCard(id);
+  }
+}
+
+// Au chargement : reprendre les demandes en attente (survivent au refresh)
+document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    const res = await vigilFetch("/api/ai/approvals?status=pending&limit=5");
+    const pending = await res.json();
+    (Array.isArray(pending) ? pending : []).forEach((p) =>
+      showApprovalCard({
+        id: p.id,
+        hostname: p.hostname,
+        command: p.command,
+        reason: p.reason,
+        timestamp: p.ts,
+      }),
+    );
+  } catch {
+    /* endpoint indisponible (auth non passée encore) */
+  }
+});

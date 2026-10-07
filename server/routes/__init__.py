@@ -18,14 +18,18 @@ def setup_routes(app: FastAPI, tmpl: Jinja2Templates, shared_data: dict):
 
     # import modules here so they see the updated globals if needed
     from . import (
+        api_ai,
         api_computers,
         api_history,
+        api_inventory,
         api_notifications,
         api_settings,
         api_smart,
         auth,
+        federation,
         health,
         legacy,
+        security,
         update,
     )
 
@@ -37,6 +41,10 @@ def setup_routes(app: FastAPI, tmpl: Jinja2Templates, shared_data: dict):
     api_history.register(app)
     api_notifications.register(app)
     api_smart.register(app)
+    api_ai.register(app)
+    security.register(app)
+    federation.register(app)
+    api_inventory.register(app)
     legacy.register(app)
     health.register(app)
     # index route lives in auth module as well (main page)

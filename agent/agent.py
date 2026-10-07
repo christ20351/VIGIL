@@ -8,7 +8,9 @@ import json
 import os
 import secrets
 import socket
+import shutil
 import string
+import subprocess
 import sys
 import threading
 import time
@@ -223,6 +225,12 @@ def _interactive_setup(existing: dict = None) -> dict:
         "HDD_SMART_ENABLED": smart_enabled,
         "HDD_TEMP_WARNING": temp_warning,
         "HDD_TEMP_CRITICAL": temp_critical,
+        # intervalles de collecte (secondes) — modifiables directement ici
+        "PROCESSES_INTERVAL": (existing or {}).get("PROCESSES_INTERVAL", 10),
+        "CONNECTIONS_INTERVAL": (existing or {}).get("CONNECTIONS_INTERVAL", 10),
+        "INTERFACES_INTERVAL": (existing or {}).get("INTERFACES_INTERVAL", 30),
+        "SMART_INTERVAL": (existing or {}).get("SMART_INTERVAL", 300),
+        "LOG_EVERY": (existing or {}).get("LOG_EVERY", 10),
     }
     _save_json_config(cfg)
     print(f"\n  [OK] Configuration sauvegardée → {CONFIG_FILE}")
@@ -250,6 +258,22 @@ if __name__ == "__main__":
     HDD_SMART_ENABLED = json_cfg.get("HDD_SMART_ENABLED", True)
     HDD_TEMP_WARNING = json_cfg.get("HDD_TEMP_WARNING", 45)
     HDD_TEMP_CRITICAL = json_cfg.get("HDD_TEMP_CRITICAL", 55)
+    # exécution privilégiée des commandes distantes — désactivée par
+    # défaut : activez PRIVILEGED_EXECUTION: true dans agent_config.json
+    # uniquement si un sudoers NOPASSWD est configuré pour l'utilisateur de
+    # l'agent (sinon préfixer sudo -n fait échouer toutes les commandes).
+    # Modèle recommandé : lancer le service agent avec les droits root.
+    PRIVILEGED_EXECUTION = json_cfg.get("PRIVILEGED_EXECUTION", False)
+
+    # ── Intervalles de collecte (secondes) — ajustables dans agent_config.json ──
+    # Les métriques cœur (CPU/RAM/disque/réseau) partent à UPDATE_INTERVAL ;
+    # les sections coûteuses sont collectées moins souvent et mises en cache
+    # par le serveur, qui reconstruit le payload complet.
+    PROCESSES_INTERVAL = json_cfg.get("PROCESSES_INTERVAL", 10)
+    CONNECTIONS_INTERVAL = json_cfg.get("CONNECTIONS_INTERVAL", 10)
+    INTERFACES_INTERVAL = json_cfg.get("INTERFACES_INTERVAL", 30)
+    SMART_INTERVAL = json_cfg.get("SMART_INTERVAL", 300)
+    LOG_EVERY = max(1, json_cfg.get("LOG_EVERY", 10))
 
     # Fallback token depuis server/config.yaml si pas dans agent_config.json
     if not AUTH_TOKEN:
@@ -271,6 +295,9 @@ if __name__ == "__main__":
 
     from smart_monitor import check_smart_alerts, get_all_disks_smart
     from system_info import get_system_info
+    from inventory import collect_inventory
+
+    INVENTORY_INTERVAL = max(300, json_cfg.get("INVENTORY_INTERVAL", 21600))
 
     HOSTNAME = socket.gethostname()
     AGENT_PORT = 8080
@@ -294,18 +321,114 @@ if __name__ == "__main__":
     _print_banner()
     print("=" * 70)
     print(f"📡 Serveur cible     : {WS_URL}")
-    print(f"⏱️  Intervalle       : {UPDATE_INTERVAL}s")
+    print(f"⏱️  Intervalle       : {UPDATE_INTERVAL}s (métriques cœur)")
+    print(f"⚙️  Collectes        : processus {PROCESSES_INTERVAL}s | connexions {CONNECTIONS_INTERVAL}s | interfaces {INTERFACES_INTERVAL}s | SMART {SMART_INTERVAL}s")
     print(f"🌐 Port ping         : {AGENT_PORT} (fallback)")
     print(f"💻 OS détecté       : {sys.platform}")
     print(f"🖥️  IP locale        : {LOCAL_IP}")
     print(f"📁 Config chargée   : {CONFIG_FILE}")
     print(f"💾 SMART monitoring  : {'activé' if HDD_SMART_ENABLED else 'désactivé'}")
+    print(f"🔑 Commandes privilégiées : {'activé' if PRIVILEGED_EXECUTION else 'désactivé'}")
     print("=" * 70)
     print()
+
+    def _as_privileged(command: str) -> str:
+        """Préfixe la commande pour l'exécuter avec les droits maximum.
+
+        - root déjà : exécution directe.
+        - POSIX non root : `sudo -n` (nécessite un sudoers NOPASSWD pour
+          l'utilisateur de l'agent, ou un agent lancé via sudo).
+        - Windows : pas de préfixe — lancer l'agent en session Administrateur.
+        """
+        if not PRIVILEGED_EXECUTION:
+            return command
+        if os.name == "nt":
+            return command  # élévation gérée au lancement de l'agent
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            return command  # déjà root
+        if not shutil.which("sudo"):
+            return command  # sudo absent : exécution telle quelle
+        return f"sudo -n {command}"
+
+    def _run_shell_command(command: str, timeout: int) -> dict:
+        """Exécute une commande système locale (demandée par le serveur)."""
+        command = _as_privileged(command)
+        try:
+            r = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            # tronquer les sorties énormes pour ne pas saturer le canal WS
+            return {
+                "stdout": (r.stdout or "")[-20000:],
+                "stderr": (r.stderr or "")[-20000:],
+                "exit_code": r.returncode,
+            }
+        except subprocess.TimeoutExpired:
+            return {"stdout": "", "stderr": f"Timeout après {timeout}s", "exit_code": -1}
+        except Exception as e:
+            return {"stdout": "", "stderr": str(e), "exit_code": -1}
+
+    async def handle_server_messages(websocket):
+        """Récepteur: traite les messages du serveur (commandes à exécuter)."""
+        async for raw in websocket:
+            try:
+                msg = json.loads(raw)
+            except Exception:
+                continue
+            if msg.get("type") == "exec":
+                command = (msg.get("command") or "").strip()
+                cmd_id = msg.get("id")
+                timeout = int(msg.get("timeout") or 60)
+                if not command:
+                    await websocket.send(json.dumps({
+                        "type": "exec_result", "id": cmd_id,
+                        "stdout": "", "stderr": "Commande vide", "exit_code": -1,
+                    }))
+                    continue
+                print(f"⚙️  Commande distante reçue: {command}")
+                result = await asyncio.to_thread(_run_shell_command, command, timeout)
+                await websocket.send(json.dumps({"type": "exec_result", "id": cmd_id, **result}))
 
     async def send_data_websocket():
         print("🚀 Démarrage de la connexion WebSocket...")
         reconnect_delay = 1
+
+        # ── Cache S.M.A.R.T. : smartctl est un sous-processus coûteux, on
+        # l'exécute dans un thread dédié à son propre rythme (SMART_INTERVAL)
+        # au lieu de chaque seconde.
+        smart_cache = {
+            "payload": {"available": False, "disks": [], "alerts": []},
+            "fresh": False,
+        }
+
+        def smart_worker():
+            while True:
+                if HDD_SMART_ENABLED:
+                    try:
+                        disks = get_all_disks_smart()
+                        alerts = check_smart_alerts(
+                            disks,
+                            temp_warning=HDD_TEMP_WARNING,
+                            temp_critical=HDD_TEMP_CRITICAL,
+                        )
+                        smart_cache["payload"] = {
+                            "available": bool(disks),
+                            "disks": disks,
+                            "alerts": alerts,
+                            "disks_count": len(disks),
+                        }
+                        smart_cache["fresh"] = True
+                    except Exception as e:
+                        print(f"⚠️  Erreur collecte SMART: {e}")
+                time.sleep(SMART_INTERVAL)
+
+        threading.Thread(target=smart_worker, daemon=True, name="SmartWorker").start()
+        # première collecte immédiate au démarrage
+        smart_cache["fresh"] = True
 
         while True:
             try:
@@ -325,81 +448,109 @@ if __name__ == "__main__":
 
                     await websocket.send(json.dumps(register_payload))
 
-                    while True:
-                        try:
-                            # ── Métriques système ──────────────────────────
-                            data = get_system_info()
+                    # récepteur des commandes distantes envoyées par le serveur
+                    receiver_task = asyncio.create_task(
+                        handle_server_messages(websocket)
+                    )
 
-                            # ── Données S.M.A.R.T. ────────────────────────
-                            smart_payload = {
-                                "available": False,
-                                "disks": [],
-                                "alerts": [],
-                            }
-                            if HDD_SMART_ENABLED:
-                                try:
-                                    disks = get_all_disks_smart()
-                                    alerts = check_smart_alerts(
-                                        disks,
-                                        temp_warning=HDD_TEMP_WARNING,
-                                        temp_critical=HDD_TEMP_CRITICAL,
+                    last_procs = last_conns = last_ifaces = float("-inf")
+                    tick = 0
+                    last_inventory = float("-inf")
+
+                    try:
+                        while True:
+                            try:
+                                now = time.monotonic()
+
+                                # ── Inventaire (au boot puis toutes les 6 h) ──
+                                if now - last_inventory >= INVENTORY_INTERVAL:
+                                    try:
+                                        inv = await asyncio.to_thread(collect_inventory)
+                                        await websocket.send(json.dumps({
+                                            "type": "inventory",
+                                            "hostname": HOSTNAME,
+                                            "data": inv,
+                                        }))
+                                        print("📦 Inventaire envoyé")
+                                    except Exception as e:
+                                        print(f"⚠️  Erreur inventaire: {e}")
+                                    last_inventory = now
+
+                                # ── Métriques système (sections lourdes cadencées) ──
+                                want_procs = now - last_procs >= PROCESSES_INTERVAL
+                                want_conns = now - last_conns >= CONNECTIONS_INTERVAL
+                                want_ifaces = now - last_ifaces >= INTERFACES_INTERVAL
+
+                                data = get_system_info(
+                                    include_processes=want_procs,
+                                    include_connections=want_conns,
+                                    include_interfaces=want_ifaces,
+                                )
+                                if want_procs:
+                                    last_procs = now
+                                if want_conns:
+                                    last_conns = now
+                                if want_ifaces:
+                                    last_ifaces = now
+
+                                # ── Données S.M.A.R.T. (issues du cache) ────────
+                                smart_payload = None
+                                if smart_cache["fresh"]:
+                                    smart_payload = smart_cache["payload"]
+                                    smart_cache["fresh"] = False
+
+                                # ── Envoi au serveur ───────────────────────────
+                                msg = {
+                                    "type": "metrics",
+                                    "hostname": HOSTNAME,
+                                    "timestamp": datetime.now().isoformat(),
+                                    "data": data,
+                                }
+                                if smart_payload is not None:
+                                    msg["smart"] = smart_payload
+                                await websocket.send(json.dumps(msg))
+
+                                # ── Log console (1 ligne sur LOG_EVERY) ─────────
+                                tick += 1
+                                if tick % LOG_EVERY == 1:
+                                    net = data["network"]
+                                    tcp = (
+                                        data.get("protocols", {})
+                                        .get("tcp", {})
+                                        .get("established", "?")
                                     )
-                                    smart_payload = {
-                                        "available": bool(disks),
-                                        "disks": disks,
-                                        "alerts": alerts,
-                                        "disks_count": len(disks),
-                                    }
-                                except Exception as e:
-                                    print(f"⚠️  Erreur collecte SMART: {e}")
+                                    smart_log = ""
+                                    sp = smart_cache["payload"]
+                                    if HDD_SMART_ENABLED and sp.get("available"):
+                                        disks_summary = " ".join(
+                                            f"{d.get('disk','?')}:{d.get('health','?')}({d.get('temperature')}°C)"
+                                            for d in sp.get("disks", [])
+                                            if d.get("available")
+                                        )
+                                        smart_log = (
+                                            f" | 💾 {disks_summary}" if disks_summary else ""
+                                        )
+                                    print(
+                                        f"✓ CPU={data['cpu_percent']:.1f}% | "
+                                        f"RAM={data['memory']['percent']:.1f}% | "
+                                        f"↓{net['bytes_recv_per_sec']/1024:.1f}KB/s | "
+                                        f"↑{net['bytes_sent_per_sec']/1024:.1f}KB/s | "
+                                        f"TCP={tcp}{smart_log}"
+                                    )
 
-                            # ── Envoi au serveur ───────────────────────────
-                            # // debug: show SMART payload before send
-                            print(f"[DEBUG] smart_payload being sent: {smart_payload}")
-                            await websocket.send(
-                                json.dumps(
-                                    {
-                                        "type": "metrics",
-                                        "hostname": HOSTNAME,
-                                        "timestamp": datetime.now().isoformat(),
-                                        "data": data,
-                                        "smart": smart_payload,
-                                    }
-                                )
-                            )
+                            except json.JSONDecodeError as e:
+                                print(f"⚠️  Erreur JSON: {e}")
+                            except Exception as e:
+                                print(f"⚠️  Erreur lors de l'envoi: {e}")
+                                break
 
-                            # ── Log console ────────────────────────────────
-                            tcp_count = data["protocols"]["tcp"]["established"]
-                            proc_count = len(data["processes"])
-                            net = data["network"]
-
-                            smart_log = ""
-                            if HDD_SMART_ENABLED and smart_payload.get("available"):
-                                disks_summary = " ".join(
-                                    f"{d['disk']}:{d['health']}({d['temperature']}°C)"
-                                    for d in smart_payload.get("disks", [])
-                                    if d.get("available")
-                                )
-                                smart_log = (
-                                    f" | 💾 {disks_summary}" if disks_summary else ""
-                                )
-
-                            print(
-                                f"✓ CPU={data['cpu_percent']:.1f}% | "
-                                f"RAM={data['memory']['percent']:.1f}% | "
-                                f"↓{net['bytes_recv_per_sec']/1024:.1f}KB/s | "
-                                f"↑{net['bytes_sent_per_sec']/1024:.1f}KB/s | "
-                                f"TCP={tcp_count} | Proc={proc_count}"
-                                f"{smart_log}"
-                            )
-
-                        except json.JSONDecodeError as e:
-                            print(f"⚠️  Erreur JSON: {e}")
-                        except Exception as e:
-                            print(f"⚠️  Erreur lors de l'envoi: {e}")
-                            break
-
-                        await asyncio.sleep(UPDATE_INTERVAL)
+                            await asyncio.sleep(UPDATE_INTERVAL)
+                    finally:
+                        receiver_task.cancel()
+                        try:
+                            await receiver_task
+                        except Exception:
+                            pass
 
             except ConnectionRefusedError:
                 print(f"✗ Serveur indisponible. Reconnexion dans {reconnect_delay}s...")

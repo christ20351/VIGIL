@@ -38,8 +38,17 @@ def _get_local_ip():
         return "127.0.0.1"
 
 
-def get_system_info():
-    """Collecte toutes les informations système"""
+def get_system_info(
+    include_processes: bool = True,
+    include_connections: bool = True,
+    include_interfaces: bool = True,
+):
+    """Collecte les informations système.
+
+    Les sections coûteuses (processus, connexions, interfaces) peuvent être
+    omises : le serveur recolle la dernière valeur connue, ce qui permet de
+    ne les collecter que toutes les N secondes.
+    """
     global last_net_io, last_time
 
     current_net_io = psutil.net_io_counters()
@@ -77,6 +86,8 @@ def get_system_info():
         )
     except:
         active_connections = 0
+    if not include_connections:
+        active_connections = -1  # valeur indisponible ce cycle (serveur: fusion)
 
     # Informations disque (compatible multi-OS)
     try:
@@ -106,7 +117,7 @@ def get_system_info():
     else:
         arch = platform.machine() or platform.architecture()[0] or "N/A"
 
-    return {
+    result = {
         "hostname": hostname,
         "timestamp": datetime.now().isoformat(),
         "system": sys.platform,
@@ -138,8 +149,13 @@ def get_system_info():
             "packets_recv": current_net_io.packets_recv,
             "active_connections": active_connections,
         },
-        "protocols": get_network_protocols(),
-        # utiliser la limite configurée si elle change
-        "processes": get_top_processes(limit=PROCESS_LIMIT),
-        "interfaces": get_network_interfaces(),
     }
+    # sections lourdes : incluses seulement quand demandées (le serveur
+    # conserve la dernière valeur connue entre deux rafraîchissements)
+    if include_connections:
+        result["protocols"] = get_network_protocols()
+    if include_processes:
+        result["processes"] = get_top_processes(limit=PROCESS_LIMIT)
+    if include_interfaces:
+        result["interfaces"] = get_network_interfaces()
+    return result

@@ -64,12 +64,6 @@ function notifIconName(sevClass) {
 
 // ─── VUE NOTIFICATIONS ────────────────────────────────────────────
 function renderNotificationsView(hours = 12, markRead = false) {
-  console.log(
-    "🔔 renderNotificationsView called with hours=",
-    hours,
-    "markRead=",
-    markRead,
-  );
   currentNotifHours = hours;
   if (currentAbortController) currentAbortController.abort();
   currentAbortController = new AbortController();
@@ -81,230 +75,158 @@ function renderNotificationsView(hours = 12, markRead = false) {
   showLoader();
 
   (async () => {
-    let allNotifications = []; // TOUTES les notifications
-    let filteredNotifications = []; // notifications filtrées par sévérité
+    let allNotifications = [];
     try {
       const params = new URLSearchParams();
       params.set("hours", hours && hours > 0 ? String(hours) : "0");
       if (currentNotifSeverity) params.set("severity", currentNotifSeverity);
-      const q = "?" + params.toString();
-      const url = `/api/notifications${q}`;
-      console.log("📡 Fetching ALL notifications:", url);
-      const res = await vigilFetch(url, {
-        signal: currentAbortController.signal,
-      });
+      const res = await vigilFetch(
+        `/api/notifications?${params.toString()}`,
+        { signal: currentAbortController.signal },
+      );
       const json = await res.json();
-      console.log("✅ API Response:", json);
-
       allNotifications =
         json?.notifications?.map((n) => ({
           timestamp: n.timestamp,
           hostname: n.hostname,
           message: n.message,
-          severity: n.severity || "info",
+          severity: n.severity || notifSeverityClass(n.message).replace("sev-", ""),
         })) || [];
-
       currentNotifTotal = json?.total || allNotifications.length;
-
-      // Calculer le nombre total de pages
-      currentNotifPages = Math.ceil(currentNotifTotal / NOTIFS_PER_PAGE) || 1;
-
-      // Extraire la page actuelle à partir de allNotifications
-      const startIdx = (currentNotifPage - 1) * NOTIFS_PER_PAGE;
-      const endIdx = startIdx + NOTIFS_PER_PAGE;
-      filteredNotifications = allNotifications.slice(startIdx, endIdx);
     } catch (e) {
       if (e.name === "AbortError") return;
       allNotifications = [];
     }
 
-    // Extraire la page actuelle
+    currentNotifPages = Math.ceil(currentNotifTotal / NOTIFS_PER_PAGE) || 1;
     const startIdx = (currentNotifPage - 1) * NOTIFS_PER_PAGE;
-    const endIdx = startIdx + NOTIFS_PER_PAGE;
-    const list = allNotifications.slice(startIdx, endIdx);
+    const list = allNotifications.slice(startIdx, startIdx + NOTIFS_PER_PAGE);
 
-    // Grouper par date seulement (pas par agent)
-    const groups = {};
-    list.forEach((a) => {
-      const date = a.timestamp
-        ? new Date(a.timestamp).toLocaleDateString("fr", {
-            weekday: "long",
-            day: "numeric",
-            month: "long",
-          })
-        : "Sans date";
-      if (!groups[date]) groups[date] = [];
-      groups[date].push(a);
+    // compteurs par sévérité (sur l'ensemble de la période)
+    const count = { error: 0, warning: 0, info: 0 };
+    allNotifications.forEach((a) => {
+      const s = count[a.severity] !== undefined ? a.severity : "info";
+      count[s]++;
     });
 
-    // Compteurs pour les KPIs
-    let crit = 0,
-      warn = 0,
-      info = 0;
-    list.forEach((a) => {
-      const s = a.severity
-        ? `sev-${a.severity}`
-        : notifSeverityClass(a.message);
-      if (s === "sev-error") crit++;
-      else if (s === "sev-warning") warn++;
-      else info++;
-    });
-
-    // Boutons plages avec état actif
+    // ── filtres : plage + sévérité dans une barre unique ──
     const ranges = [
-      { label: "1h", val: 1 },
-      { label: "4h", val: 4 },
-      { label: "7h", val: 7 },
-      { label: "24h", val: 24 },
-      { label: "2j", val: 48 },
-      { label: "3j", val: 72 },
+      { label: "1 h", val: 1 },
+      { label: "4 h", val: 4 },
+      { label: "24 h", val: 24 },
+      { label: "2 j", val: 48 },
+      { label: "3 j", val: 72 },
       { label: "Tout", val: 0 },
     ];
     const rangeHTML = ranges
       .map(
         (r) =>
-          `<button onclick="setNotifHours(${r.val})" class="${r.val === hours ? "active" : ""}">${r.label}</button>`,
+          `<button onclick="setNotifHours(${r.val})" class="nj-filter ${r.val === hours ? "active" : ""}">${r.label}</button>`,
       )
       .join("");
-
-    // severity filter buttons
     const sevOptions = [
-      { label: "Toutes", val: "" },
-      { label: "Critiques", val: "error" },
-      { label: "Alertes", val: "warning" },
-      { label: "Infos", val: "info" },
+      { label: "Toutes", val: "", icon: "layers" },
+      { label: "Critiques", val: "error", icon: "alert-octagon" },
+      { label: "Alertes", val: "warning", icon: "alert-triangle" },
+      { label: "Infos", val: "info", icon: "info" },
     ];
     const sevHTML = sevOptions
       .map(
         (s) =>
-          `<button onclick="setNotifSeverity('${s.val}')" class="${s.val === currentNotifSeverity || (s.val === "" && !currentNotifSeverity) ? "active" : ""}">${s.label}</button>`,
+          `<button onclick="setNotifSeverity('${s.val}')" class="nj-filter ${s.val === (currentNotifSeverity || "") ? "active" : ""}"><i data-lucide="${s.icon}"></i>${s.label}</button>`,
       )
       .join("");
 
+    // ── entête + stats + filtres ──
     let html = `
       <div class="notifications-container">
-
         <div class="activity-header">
           <div class="activity-header-left">
-            <div class="activity-title">Journal d'activité</div>
-            <div class="activity-sub">NOTIFICATIONS ET ALERTES DU SYSTÈME</div>
+            <div class="activity-title">Journal des notifications</div>
+            <div class="activity-sub">ALERTES SYSTÈME ET ÉVÉNEMENTS SUPERVISÉS</div>
           </div>
-          <div class="history-controls">${rangeHTML}</div>
+          <div class="nj-stats">
+            <div class="nj-stat sev-error"><i data-lucide="alert-octagon"></i><div><div class="nj-stat-val">${count.error}</div><div class="nj-stat-label">Critiques</div></div></div>
+            <div class="nj-stat sev-warning"><i data-lucide="alert-triangle"></i><div><div class="nj-stat-val">${count.warning}</div><div class="nj-stat-label">Alertes</div></div></div>
+            <div class="nj-stat sev-info"><i data-lucide="info"></i><div><div class="nj-stat-val">${count.info}</div><div class="nj-stat-label">Infos</div></div></div>
+            <div class="nj-stat"><i data-lucide="list"></i><div><div class="nj-stat-val">${currentNotifTotal}</div><div class="nj-stat-label">Total</div></div></div>
+          </div>
         </div>
 
-        <div class="notif-filters">
-          <div class="notif-filter-label">Sévérité</div>
-          <div class="notif-filter-buttons">${sevHTML}</div>
-        </div>
-
-        <div class="activity-summary">
-          <div class="activity-kpi">
-            <div class="activity-kpi-val red">${crit}</div>
-            <div class="activity-kpi-label">Critiques</div>
-          </div>
-          <div class="activity-kpi">
-            <div class="activity-kpi-val yellow">${warn}</div>
-            <div class="activity-kpi-label">Alertes</div>
-          </div>
-          <div class="activity-kpi">
-            <div class="activity-kpi-val blue">${info}</div>
-            <div class="activity-kpi-label">Infos</div>
-          </div>
-          <div class="activity-kpi">
-            <div class="activity-kpi-val">${currentNotifTotal}</div>
-            <div class="activity-kpi-label">Total</div>
-          </div>
+        <div class="nj-toolbar">
+          <div class="nj-filters">${sevHTML}</div>
+          <div class="nj-filters">${rangeHTML}</div>
         </div>
     `;
 
-    if (Object.keys(groups).length === 0) {
+    if (!list.length) {
       html += `
         <div class="notif-empty">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-            <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-            <line x1="2" y1="2" x2="22" y2="22"/>
-          </svg>
+          <i data-lucide="bell-off"></i>
           <div class="notif-empty-title">Aucune notification</div>
           <div class="notif-empty-sub">Aucun événement sur la période sélectionnée</div>
         </div>`;
     } else {
-      Object.keys(groups).forEach((date) => {
-        html += `
-          <div class="notif-day">
-            <div class="notif-day-label">${date}</div>`;
+      // groupement par jour
+      const groups = {};
+      list.forEach((a) => {
+        const date = a.timestamp
+          ? new Date(a.timestamp).toLocaleDateString("fr", {
+              weekday: "long",
+              day: "numeric",
+              month: "long",
+            })
+          : "Sans date";
+        (groups[date] = groups[date] || []).push(a);
+      });
 
+      Object.keys(groups).forEach((date) => {
+        html += `<div class="notif-day"><div class="notif-day-label">${date}</div>`;
         groups[date].forEach((a) => {
-          const time = a.timestamp
+          const sevClass = `sev-${a.severity || "info"}`;
+          const iconName = notifIconName(sevClass);
+          const when = a.timestamp
             ? new Date(a.timestamp).toLocaleTimeString("fr", {
                 hour: "2-digit",
                 minute: "2-digit",
                 second: "2-digit",
               })
             : "";
-          const sevClass = a.severity
-            ? `sev-${a.severity}`
-            : notifSeverityClass(a.message);
-          const badge = notifBadgeLabel(sevClass);
-          const iconName = notifIconName(sevClass);
-          const iconHTML = LUCIDE_OK
-            ? `<i data-lucide="${iconName}" class="notif-icon"></i>`
-            : "";
-
-          // Afficher hostname en petit si présent
-          const hostDisplay = a.hostname
-            ? ` <span class="notif-hostname">(${a.hostname})</span>`
-            : "";
-
           html += `
-            <div class="notif-item ${sevClass}">
-              <div class="notif-sev-bar"></div>
-              ${iconHTML}
-              <span class="notif-badge">${badge}</span>
-              <span class="notif-time">${time}</span>
-              <div class="notif-content">
-                <span class="notif-text">${a.message || ""}</span>
-                ${hostDisplay}
+            <div class="nj-item ${sevClass}">
+              <div class="nj-item-icon"><i data-lucide="${iconName}"></i></div>
+              <div class="nj-item-body">
+                <div class="nj-item-msg">${(a.message || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
+                <div class="nj-item-meta">
+                  ${a.hostname ? `<span class="nj-item-host"><i data-lucide="server"></i>${a.hostname}</span>` : ""}
+                  <span class="nj-item-time">${when}</span>
+                  <span class="nj-item-ago">${timeAgo(a.timestamp)}</span>
+                </div>
               </div>
             </div>`;
         });
-
-        html += `</div>`; // .notif-day
+        html += `</div>`;
       });
     }
 
-    // pagination controls
-    // S'assurer qu'on a un nombre de pages correct même si l'API ne retourne pas la valeur
-    let displayPages = currentNotifPages;
-    if (displayPages === 0 && list.length > 0) {
-      displayPages = Math.ceil(currentNotifTotal / NOTIFS_PER_PAGE) || 1;
-    }
-    // Mettre à jour la variable globale pour les contrôles
-    currentNotifPages = displayPages;
-
+    // ── pagination ──
     const prevDisabled = currentNotifPage <= 1;
-    const nextDisabled = currentNotifPage >= displayPages;
+    const nextDisabled = currentNotifPage >= currentNotifPages;
     const pageBtns = [];
-    for (let i = 1; i <= Math.min(displayPages, 5); i++) {
-      const active = i === currentNotifPage ? "active" : "";
+    for (let i = 1; i <= Math.min(currentNotifPages, 5); i++) {
       pageBtns.push(
-        `<button onclick="goToNotifPage(${i})" class="${active}">${i}</button>`,
+        `<button onclick="goToNotifPage(${i})" class="nj-page-btn ${i === currentNotifPage ? "active" : ""}">${i}</button>`,
       );
     }
-    const pageDisplay =
-      displayPages > 0
-        ? `Page ${currentNotifPage}/${displayPages}`
-        : "Aucune notification";
-
     html += `
-      <div class="notif-pagination">
-        <button onclick="goToNotifPage(${currentNotifPage - 1})" ${prevDisabled ? "disabled" : ""}>← Préc</button>
-        <div class="notif-page-info">${pageDisplay}</div>
-        <div class="notif-page-buttons">${pageBtns.join("")}</div>
-        <button onclick="goToNotifPage(${currentNotifPage + 1})" ${nextDisabled ? "disabled" : ""}>Suiv →</button>
-      </div>`;
+      <div class="nj-pagination">
+        <button onclick="goToNotifPage(${currentNotifPage - 1})" class="nj-page-btn" ${prevDisabled ? "disabled" : ""}><i data-lucide="chevron-left"></i></button>
+        <div class="nj-page-info">Page ${currentNotifPage} / ${currentNotifPages || 1}</div>
+        <div class="nj-page-buttons">${pageBtns.join("")}</div>
+        <button onclick="goToNotifPage(${currentNotifPage + 1})" class="nj-page-btn" ${nextDisabled ? "disabled" : ""}><i data-lucide="chevron-right"></i></button>
+      </div>
+    </div>`;
 
-    html += `</div>`; // .notifications-container
     document.querySelector(".content").innerHTML = html;
     refreshIcons();
     hideLoader();
@@ -528,22 +450,31 @@ function updateActivityChart(hostname) {
 // ─── CHART HISTORIQUE (modal agent) ───────────────────────────────
 let historyChart = null;
 
-async function fetchHistoryAndRenderHistory(hostname, hours = 24) {
+async function fetchHistoryAndRenderHistory(hostname, hours = 24, btnEl = null) {
+  if (btnEl) {
+    document
+      .querySelectorAll(".history-controls button")
+      .forEach((b) => b.classList.remove("active"));
+    btnEl.classList.add("active");
+  }
   showLoader();
-  await fetchHistory(hostname, hours);
-  if (!historyChart) initHistoryChart(hostname);
-  updateHistoryChart(hostname);
-  requestAnimationFrame(() => hideLoader());
+  try {
+    await fetchHistory(hostname, hours);
+    if (!historyChart) initHistoryChart(hostname);
+    updateHistoryChart(hostname);
+  } finally {
+    hideLoader();
+  }
 }
 
 function renderHistory(hostname) {
   document.getElementById("tab-history").innerHTML = `
     <div class="history-container">
       <div class="history-controls">
-        <button onclick="fetchHistoryAndRenderHistory('${hostname}', 1)">1h</button>
-        <button onclick="fetchHistoryAndRenderHistory('${hostname}', 4)">4h</button>
-        <button onclick="fetchHistoryAndRenderHistory('${hostname}', 24)" class="active">24h</button>
-        <button onclick="fetchHistoryAndRenderHistory('${hostname}', 168)">7j</button>
+        <button onclick="fetchHistoryAndRenderHistory('${hostname}', 1, this)">1h</button>
+        <button onclick="fetchHistoryAndRenderHistory('${hostname}', 4, this)">4h</button>
+        <button onclick="fetchHistoryAndRenderHistory('${hostname}', 24, this)" class="active">24h</button>
+        <button onclick="fetchHistoryAndRenderHistory('${hostname}', 168, this)">7j</button>
       </div>
       <div class="activity-chart-card">
         <div class="activity-chart-header">
@@ -569,11 +500,7 @@ function renderHistory(hostname) {
       </div>
     </div>
   `;
-  showLoader();
-  requestAnimationFrame(() => {
-    initHistoryChart(hostname);
-    requestAnimationFrame(() => hideLoader());
-  });
+  fetchHistoryAndRenderHistory(hostname, 24);
 }
 
 function initHistoryChart(hostname) {

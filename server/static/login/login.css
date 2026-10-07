@@ -20,8 +20,8 @@
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(0,212,255,0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0,212,255,0.04) 1px, transparent 1px);
+    linear-gradient(rgba(38,198,238,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(38,198,238,0.04) 1px, transparent 1px);
   background-size: 40px 40px;
   animation: gridShift 20s linear infinite;
 }
@@ -82,7 +82,7 @@
   font-weight: 800;
   letter-spacing: 0.2em;
   color: var(--accent);
-  text-shadow: 0 0 30px rgba(0,212,255,0.4);
+  text-shadow: 0 0 30px rgba(38,198,238,0.4);
 }
 .login-logo-sub {
   font-family: var(--font-mono);
@@ -100,7 +100,7 @@
   border-radius: 14px;
   padding: 28px;
   box-shadow:
-    0 0 0 1px rgba(0,212,255,0.06),
+    0 0 0 1px rgba(38,198,238,0.06),
     0 24px 64px rgba(0,0,0,0.5);
   backdrop-filter: blur(10px);
 }
@@ -139,8 +139,8 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 .login-alert-error {
-  background: rgba(255,61,113,0.08);
-  border: 1px solid rgba(255,61,113,0.25);
+  background: rgba(251,85,112,0.08);
+  border: 1px solid rgba(251,85,112,0.25);
   color: var(--red);
 }
 .alert-bar {
@@ -208,11 +208,11 @@
 .field-input-wrap input:focus {
   border-color: var(--accent);
   background: var(--bg2);
-  box-shadow: 0 0 0 3px rgba(0,212,255,0.1);
+  box-shadow: 0 0 0 3px rgba(38,198,238,0.1);
 }
 .field-input-wrap input.input-error {
   border-color: var(--red);
-  box-shadow: 0 0 0 3px rgba(255,61,113,0.1);
+  box-shadow: 0 0 0 3px rgba(251,85,112,0.1);
 }
 
 /* Bouton œil mot de passe */
@@ -274,7 +274,7 @@
 .login-btn:hover {
   background: #00bfdf;
   transform: translateY(-1px);
-  box-shadow: 0 8px 24px rgba(0,212,255,0.3);
+  box-shadow: 0 8px 24px rgba(38,198,238,0.3);
 }
 .login-btn:hover::before { opacity: 1; }
 .login-btn:active { transform: translateY(0); }

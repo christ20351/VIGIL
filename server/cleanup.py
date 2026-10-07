@@ -1,78 +1,86 @@
 """
-Gestion du nettoyage des données et ping des agents
+Gestion du marquage hors-ligne des agents.
+
+Anciennement basé sur un ping HTTP séquentiel vers chaque agent (à 500
+agents, un cycle pouvait prendre 40+ minutes). Désormais : le serveur
+surveille l'âge du dernier message WebSocket reçu (last_seen), ce qui est
+instantané et parallèle par nature. Le seuil est le paramètre TIMEOUT de
+config.yaml ("Secondes avant de marquer un agent hors ligne").
 """
 
+import asyncio
 import threading
 import time
 
-import requests
-
 
 def clean_old_data(computers_data):
-    """Vérifie la connexion des agents toutes les 60 secondes via ping"""
+    """Marque hors ligne les agents silencieux depuis plus de TIMEOUT secondes."""
 
-    def ping_loop():
+    def watchdog_loop():
+        import websocket_handler as _ws
+
         while True:
-            time.sleep(60)  # Ping toutes les 60 secondes
+            time.sleep(15)
 
-            to_remove = []
+            try:
+                import config as _config
+
+                threshold = max(10, int(getattr(_config, "TIMEOUT", 60) or 60))
+            except Exception:
+                threshold = 60
 
             for hostname, data in list(computers_data.items()):
-                agent_ip = data.get("agent_ip")
-                if not agent_ip:
-                    to_remove.append(hostname)
+                if not isinstance(data, dict) or data.get("offline"):
+                    continue
+                age = _ws.agent_manager.seconds_since_last_message(hostname)
+                # pas encore vu de message (agent connecté en HTTP legacy) :
+                # on se base sur last_seen ISO du payload
+                if age is None:
+                    last_seen = data.get("last_seen")
+                    if not last_seen:
+                        continue
+                    try:
+                        from datetime import datetime
+
+                        age = (datetime.now() - datetime.fromisoformat(last_seen)).total_seconds()
+                    except Exception:
+                        continue
+                if age is None or age < threshold:
                     continue
 
-                # Ping l'agent
+                data["offline"] = True
+                data["offline_since"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+                print(f"⚠️  {hostname} silencieux depuis {int(age)}s → marqué hors ligne")
+
                 try:
-                    response = requests.get(f"http://{agent_ip}:8080/ping", timeout=5)
-                    if response.status_code != 200:
-                        to_remove.append(hostname)
+                    # main_loop est lu à l'exécution (renseigné au startup FastAPI)
+                    if _ws.main_loop:
+                        asyncio.run_coroutine_threadsafe(
+                            _ws.client_manager.broadcast(
+                                {
+                                    "type": "alert",
+                                    "hostname": hostname,
+                                    "message": "Agent hors ligne (plus de données reçues)",
+                                    "severity": "error",
+                                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                }
+                            ),
+                            _ws.main_loop,
+                        )
+                        asyncio.run_coroutine_threadsafe(
+                            _ws.client_manager.broadcast(
+                                {
+                                    "type": "agent_update",
+                                    "hostname": hostname,
+                                    "data": data,
+                                }
+                            ),
+                            _ws.main_loop,
+                        )
                 except Exception:
-                    to_remove.append(hostname)
+                    pass
 
-            for hostname in to_remove:
-                if hostname in computers_data:
-                    data = computers_data[hostname]
-                    if not data.get("offline"):
-                        print(f"⚠️  {hostname} déconnecté (ping échoué)")
-                        data["offline"] = True
-                        data["offline_since"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-                        # envoyer alerte aux clients web
-                        try:
-                            import asyncio
-
-                            from websocket_handler import client_manager, main_loop
-
-                            if main_loop:
-                                asyncio.run_coroutine_threadsafe(
-                                    client_manager.broadcast(
-                                        {
-                                            "type": "alert",
-                                            "hostname": hostname,
-                                            "message": "Agent hors ligne (ping échoué)",
-                                            "timestamp": time.strftime(
-                                                "%Y-%m-%dT%H:%M:%S"
-                                            ),
-                                        }
-                                    ),
-                                    main_loop,
-                                )
-                                # mise à jour de l'agent
-                                asyncio.run_coroutine_threadsafe(
-                                    client_manager.broadcast(
-                                        {
-                                            "type": "agent_update",
-                                            "hostname": hostname,
-                                            "data": data,
-                                        }
-                                    ),
-                                    main_loop,
-                                )
-                        except Exception:
-                            pass
-
-    # Démarre le thread de nettoyage en arrière-plan
-    thread = threading.Thread(target=ping_loop, daemon=True)
+    # Démarre la surveillance en arrière-plan
+    thread = threading.Thread(target=watchdog_loop, daemon=True)
     thread.start()
     return thread

@@ -1,0 +1,192 @@
+/* ─────────────────────────────────────────────────────────────
+   VIGIL — ai_drawer.css (Floating AI Copilot Drawer & Pro UI)
+   ───────────────────────────────────────────────────────────── */
+
+/* Floating Action Button */
+.ai-fab-btn {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1 0%, #8b93f8 100%);
+  color: #ffffff;
+  border: 1px solid rgba(139, 147, 248, 0.4);
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 999;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ai-fab-btn:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 28px rgba(139, 147, 248, 0.6);
+}
+
+.ai-fab-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #4ade80;
+  border: 2px solid #0b111d;
+}
+
+/* Floating AI Drawer Slide Panel */
+.ai-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(9, 13, 22, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.3s ease;
+}
+
+.ai-drawer-overlay.open {
+  opacity: 1;
+  visibility: visible;
+}
+
+.ai-drawer {
+  position: fixed;
+  top: 0;
+  right: -560px;
+  width: 520px;
+  max-width: 92vw;
+  height: 100vh;
+  background: rgba(11, 17, 29, 0.96);
+  backdrop-filter: blur(12px);
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.6);
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  transition: right 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ai-drawer.open {
+  right: 0;
+}
+
+/* Drawer Header */
+.ai-drawer-header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(17, 26, 44, 0.5);
+}
+
+.ai-drawer-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-family: "Syne", sans-serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.ai-drawer-close {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 4px;
+}
+.ai-drawer-close:hover { color: #f8fafc; }
+
+/* Drawer Content */
+.ai-drawer-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Sparklines & Pro Card Upgrades */
+.pro-card {
+  background: rgba(11, 17, 29, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 1.25rem;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+.pro-card:hover {
+  border-color: rgba(139, 147, 248, 0.3);
+  transform: translateY(-2px);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Barre de sessions de conversation (multi-chats persistants)
+   Partagée entre le drawer flottant et la page IA Copilote
+   ───────────────────────────────────────────────────────────── */
+.ai-session-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  background: rgba(15, 23, 42, 0.35);
+  flex-shrink: 0;
+}
+.ai-session-select {
+  flex: 1;
+  min-width: 0;
+  background: rgba(30, 41, 59, 0.8);
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 0.78rem;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  text-overflow: ellipsis;
+}
+.ai-session-select:hover,
+.ai-session-select:focus {
+  border-color: rgba(139, 147, 248, 0.55);
+}
+.ai-session-select option {
+  background: #1e293b;
+  color: #e2e8f0;
+}
+.ai-session-btn {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(30, 41, 59, 0.8);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.ai-session-btn svg,
+.ai-session-btn i {
+  width: 15px;
+  height: 15px;
+}
+.ai-session-btn:hover {
+  color: #e2e8f0;
+  border-color: rgba(139, 147, 248, 0.55);
+  background: rgba(51, 65, 85, 0.9);
+}
+.ai-session-btn.ai-session-danger:hover {
+  color: #fb7185;
+  border-color: rgba(251, 113, 133, 0.5);
+}

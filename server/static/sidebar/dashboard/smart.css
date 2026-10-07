@@ -20,7 +20,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 12px;
-  background: rgba(0, 212, 255, 0.05);
+  background: rgba(38, 198, 238, 0.05);
   border-left: 3px solid var(--accent);
   border-radius: 4px;
 }
@@ -117,17 +117,17 @@
 }
 
 .health-status.ok {
-  background: rgba(0, 230, 118, 0.15);
+  background: rgba(52, 211, 153, 0.15);
   color: var(--green);
 }
 
 .health-status.critical {
-  background: rgba(255, 61, 113, 0.15);
+  background: rgba(251, 85, 112, 0.15);
   color: var(--red);
 }
 
 .health-status.unknown {
-  background: rgba(255, 179, 0, 0.15);
+  background: rgba(245, 184, 73, 0.15);
   color: var(--yellow);
 }
 
@@ -266,7 +266,7 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  background: rgba(255, 61, 113, 0.08);
+  background: rgba(251, 85, 112, 0.08);
   border-left: 3px solid var(--red);
   border-radius: 4px;
 }
@@ -301,8 +301,19 @@
 }
 
 .alert-icon {
-  font-size: 16px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
   flex-shrink: 0;
+  margin-top: 6px;
+}
+.alert-icon.dot-critical {
+  background: var(--red);
+  box-shadow: 0 0 8px rgba(251, 85, 112, 0.7);
+}
+.alert-icon.dot-warning {
+  background: var(--yellow);
+  box-shadow: 0 0 8px rgba(245, 184, 73, 0.7);
 }
 
 .alert-content {
@@ -336,7 +347,7 @@
   align-items: center;
   gap: 8px;
   padding: 12px;
-  background: rgba(0, 230, 118, 0.08);
+  background: rgba(52, 211, 153, 0.08);
   border-left: 3px solid var(--green);
   border-radius: 4px;
   font-size: 13px;
@@ -355,14 +366,45 @@
   gap: 12px;
   padding: 24px;
   text-align: center;
-  background: rgba(255, 179, 0, 0.08);
+  background: rgba(245, 184, 73, 0.08);
   border: 1px dashed var(--border2);
   border-radius: 6px;
   color: var(--muted);
 }
 
 .smart-icon {
-  font-size: 32px;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: rgba(245, 184, 73, 0.1);
+  border: 1px solid rgba(245, 184, 73, 0.3);
+  color: var(--yellow);
+}
+.smart-icon svg {
+  width: 26px;
+  height: 26px;
+}
+
+/* Notes de métrique (OK / Surveiller) */
+.metric-note {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.metric-note.warn-note { color: var(--yellow); }
+.metric-note.ok-note { color: var(--muted); }
+
+.metric-health {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.metric-health svg {
+  width: 14px;
+  height: 14px;
 }
 
 .smart-unavailable h3 {

@@ -47,7 +47,7 @@ function updateSmartHealthTab(hostname) {
       // ne pas afficher un message d'erreur bloquant, juste indiquer l'état
       container.innerHTML = `
         <div class="smart-unavailable">
-          <div class="smart-icon">⚠️</div>
+          <div class="smart-icon"><i data-lucide="alert-triangle"></i></div>
           <h3>Erreur de récupération</h3>
           <p>Impossible de contacter l'API SMART.</p>
           <p class="smart-hint">${err.message}</p>
@@ -64,7 +64,7 @@ function renderSmartTab(container, smart) {
   if (!smart || !smart.available) {
     container.innerHTML = `
       <div class="smart-unavailable">
-        <div class="smart-icon">💾</div>
+        <div class="smart-icon"><i data-lucide="hard-drive"></i></div>
         <h3>Aucune donnée S.M.A.R.T. disponible</h3>
         <p>L'agent ne rapporte pas d'informations S.M.A.R.T.</p>
         <p class="smart-hint">Vérifiez que l'agent tourne avec les droits administrateur.</p>
@@ -117,7 +117,7 @@ function renderSmartTab(container, smart) {
         .map(
           (a) => `
         <div class="smart-alert alert-${(a.level || "warning").toLowerCase()}">
-          <div class="alert-icon">${a.level === "CRITICAL" ? "🔴" : "🟡"}</div>
+          <div class="alert-icon ${a.level === "CRITICAL" ? "dot-critical" : "dot-warning"}"></div>
           <div class="alert-content">
             <div class="alert-type">${a.level || "WARNING"}</div>
             <div class="alert-message">${a.message || ""}</div>
@@ -230,21 +230,21 @@ function renderSmartTab(container, smart) {
             ${sectors}
             ${
               sectors > 0
-                ? "<span style='font-size:11px;color:var(--yellow)'> ⚠️ Attention</span>"
-                : "<span style='font-size:11px;color:var(--muted)'> OK</span>"
+                ? '<span class="metric-note warn-note">Surveiller</span>'
+                : '<span class="metric-note ok-note">OK</span>'
             }
           </div>
         </div>
 
         <div class="metric-item">
           <div class="metric-label">État de santé</div>
-          <div class="metric-value ${healthClass}">
+          <div class="metric-value ${healthClass} metric-health">
             ${
               health === "PASSED"
-                ? "✅ Disque sain"
+                ? '<i data-lucide="check-circle-2"></i> Disque sain'
                 : health === "FAILED"
-                  ? "❌ Défaillant"
-                  : "❓ Inconnu"
+                  ? '<i data-lucide="alert-octagon"></i> Défaillant'
+                  : '<i data-lucide="help-circle"></i> Inconnu'
             }
           </div>
         </div>

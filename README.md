@@ -1,7 +1,4 @@
-
-# 🖥️ VIGIL MVP v2.0
-
-## VIGIL est un Système de Monitoring Centralisé 
+# 🖥️ VIGIL — Centralized Monitoring System v2.0
 
 [![Python Version](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
